@@ -1,22 +1,48 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg-primary: #000000;
-  --color-bg-secondary: #0a0a0a;
-  --color-bg-tertiary: #111111;
-  --color-bg-quaternary: #222222;
-  --color-danger: #ff0000;
-  --color-primary-accent: #00ff00;
-  --color-secondary-text: #ffff00;
-  --color-tertiary-accent: #0000ff;
-  --color-border: #111111;
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-tertiary: var(--bg-tertiary);
+  --color-bg-quaternary: var(--bg-quaternary);
+  --color-danger: #ea3939; /* slightly softer red */
+  --color-primary-accent: var(--primary-accent);
+  --color-secondary-text: var(--secondary-text);
+  --color-tertiary-accent: var(--tertiary-accent);
+  --color-border: var(--border);
+  --color-white: var(--white);
+  --color-black: var(--black);
 }
 
 :root {
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #111111;
+  --bg-quaternary: #222222;
+  --primary-accent: #00ff00;
+  --secondary-text: #ffff00;
+  --tertiary-accent: #0000ff;
+  --border: #111111;
+  --white: #ffffff;
+  --black: #000000;
+
   background-color: var(--color-bg-primary);
-  color: #ffffff;
+  color: var(--color-white);
   font-family: 'Inter', sans-serif;
   letter-spacing: -0.01em;
+}
+
+.light-mode {
+  --bg-primary: #f9fafb;
+  --bg-secondary: #f3f4f6;
+  --bg-tertiary: #e5e7eb;
+  --bg-quaternary: #d1d5db;
+  --primary-accent: #16a34a; /* darker green */
+  --secondary-text: #ca8a04; /* darker yellow */
+  --tertiary-accent: #2563eb; /* darker blue */
+  --border: #d1d5db;
+  --white: #111827; /* Inverse of white */
+  --black: #f9fafb; /* Inverse of black */
 }
 
 body {

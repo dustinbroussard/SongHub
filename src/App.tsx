@@ -1,8 +1,42 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Music, Trash2, Download, Copy, Check, FileAudio, Info, Edit3, FileText, ChevronLeft, Play, Pause, X, Search, ArrowUpDown, History as HistoryIcon, Clock, Save, RotateCcw } from 'lucide-react';
+import { Plus, Music, Trash2, Download, Copy, Check, FileAudio, Info, Edit3, FileText, ChevronLeft, Play, Pause, X, Search, ArrowUpDown, History as HistoryIcon, Clock, Save, RotateCcw, Smartphone, ChevronRight, Mic, Sun, Moon } from 'lucide-react';
 import { Song, SongMetadata, AudioFile, HistoryEntry } from './types';
 import { storage } from './lib/storage';
 import { cn } from './lib/utils';
+
+// --- Hooks ---
+const useSpeechRecognition = () => {
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  const startListening = (onResult: (text: string) => void) => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Speech recognition not supported in this browser.");
+      return;
+    }
+
+    recognitionRef.current = new SpeechRecognition();
+    recognitionRef.current.continuous = false;
+    recognitionRef.current.interimResults = false;
+    recognitionRef.current.lang = 'en-US';
+
+    recognitionRef.current.onstart = () => setIsListening(true);
+    recognitionRef.current.onend = () => setIsListening(false);
+    recognitionRef.current.onresult = (event: any) => {
+      const text = event.results[0][0].transcript;
+      onResult(text);
+    };
+
+    recognitionRef.current.start();
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) recognitionRef.current.stop();
+  };
+
+  return { isListening, startListening, stopListening };
+};
 
 // --- Shared Components ---
 
@@ -281,6 +315,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ file, onDelete, onRename }) =
 
 const LyricsEditor = ({ lyrics, onChange }: { lyrics: string, onChange: (val: string) => void }) => {
   const [copied, setCopied] = useState(false);
+  const { isListening, startListening, stopListening } = useSpeechRecognition();
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(lyrics);
@@ -288,17 +323,34 @@ const LyricsEditor = ({ lyrics, onChange }: { lyrics: string, onChange: (val: st
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleVoiceInput = () => {
+    if (isListening) {
+      stopListening();
+    } else {
+      startListening((text) => onChange(lyrics + (lyrics ? '\n' : '') + text));
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-bg-primary overflow-hidden">
       <div className="px-4 lg:px-6 py-2.5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-bg-primary/95 backdrop-blur-md z-10">
         <span className="text-accent-label">Lyrics</span>
-        <button 
-          onClick={copyToClipboard}
-          className="flex items-center gap-1.5 text-[9px] uppercase font-black text-white/30 hover:text-primary-accent transition-colors tracking-widest"
-        >
-          {copied ? <Check size={11} /> : <Copy size={11} />}
-          {copied ? 'Copied' : 'Copy'}
-        </button>
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={handleVoiceInput}
+            className={cn("flex items-center gap-1.5 text-[9px] uppercase font-black transition-colors tracking-widest", isListening ? "text-primary-accent" : "text-white/30 hover:text-white")}
+          >
+            <Mic size={11} />
+            {isListening ? 'Listening...' : 'Voice'}
+          </button>
+          <button 
+            onClick={copyToClipboard}
+            className="flex items-center gap-1.5 text-[9px] uppercase font-black text-white/30 hover:text-primary-accent transition-colors tracking-widest"
+          >
+            {copied ? <Check size={11} /> : <Copy size={11} />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
       </div>
       <div className="flex-1 overflow-y-auto px-4 lg:px-12 py-8">
         <textarea 
@@ -319,6 +371,8 @@ const Sidebar = ({
   onCreate,
   onDelete,
   onExportZIP,
+  theme,
+  toggleTheme,
   onClose
 }: { 
   songs: Song[], 
@@ -327,11 +381,14 @@ const Sidebar = ({
   onCreate: () => void,
   onDelete: (id: string, e: React.MouseEvent) => void,
   onExportZIP: () => void,
+  theme: 'dark' | 'light',
+  toggleTheme: () => void,
   onClose?: () => void
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updatedAt' | 'createdAt' | 'title'>('updatedAt');
   const [sortDesc, setSortDesc] = useState(true);
+  const { isListening, startListening, stopListening } = useSpeechRecognition();
 
   const filteredAndSortedSongs = useMemo(() => {
     let result = [...songs];
@@ -370,45 +427,42 @@ const Sidebar = ({
               <ChevronLeft size={20} />
             </button>
           )}
-          <h1 className="text-primary-accent text-xl font-bold tracking-tighter uppercase">Chord</h1>
+          <h1 className="text-primary-accent text-xl font-bold tracking-tighter uppercase">SongHub</h1>
         </div>
-        <button 
-          onClick={onCreate}
-          className="p-2 border border-primary-accent text-primary-accent rounded-xl hover:bg-primary-accent hover:text-black transition-all duration-300 ease-in-out hover:shadow-[0_4px_14px_0_rgba(0,255,0,0.2)] hover:-translate-y-0.5 active:translate-y-0"
-          title="New Song"
-        >
-          <Plus size={16} />
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <IconButton icon={theme === 'dark' ? Sun : Moon} onClick={toggleTheme} title="Toggle Theme" />
+          <Button variant="outline" icon={Plus} onClick={onCreate} className="hidden lg:flex" title="New Song">Create</Button>
+        </div>
       </div>
 
-      <div className="p-4 border-b border-border bg-bg-primary shrink-0 flex flex-col gap-3">
-        <div className="relative group">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 group-focus-within:text-primary-accent transition-colors duration-300" />
-          <input 
-            type="text"
-            placeholder="Search matching songs..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-bg-tertiary border border-white/5 rounded-xl pl-9 pr-3 py-2 text-xs text-white/90 outline-none focus:ring-2 focus:ring-primary-accent/30 focus:border-primary-accent/50 transition-all duration-300 shadow-inner placeholder:text-white/20"
-          />
-        </div>
-        <div className="flex items-center gap-2">
-          <select 
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as any)}
-            className="w-full bg-bg-tertiary border border-white/5 rounded-xl px-2 py-1.5 text-xs text-white/60 outline-none focus:ring-2 focus:ring-primary-accent/30 transition-all appearance-none cursor-pointer focus:border-primary-accent/50 group-focus-within:border-primary-accent/50"
-          >
-            <option value="updatedAt">Last Updated</option>
-            <option value="createdAt">Created Date</option>
-            <option value="title">Title</option>
-          </select>
-          <button 
-            onClick={() => setSortDesc(!sortDesc)}
-            className="p-2 bg-bg-tertiary border border-white/5 rounded-xl hover:bg-white/5 text-white/60 hover:text-white transition-all duration-300 ease-in-out flex-shrink-0"
-            title={sortDesc ? "Descending" : "Ascending"}
-          >
-            <ArrowUpDown size={14} className={cn("transition-transform duration-300", !sortDesc && "rotate-180")} />
-          </button>
+      <div className="p-4 border-b border-border bg-bg-primary shrink-0 z-10 w-full min-w-0">
+        <div className="bg-bg-tertiary border border-white/5 rounded-xl flex items-center shadow-inner focus-within:ring-2 focus-within:ring-primary-accent/30 focus-within:border-primary-accent transition-all duration-300 w-full">
+           <button 
+             onClick={() => isListening ? stopListening() : startListening((text) => setSearchQuery(text))}
+             className={cn("p-2 lg:p-3 transition-colors shrink-0", isListening ? "text-primary-accent" : "text-white/30 hover:text-white")}
+             title="Voice Search"
+           >
+             <Mic size={14} />
+           </button>
+           <input 
+             type="text"
+             placeholder="Search songs..."
+             value={searchQuery}
+             onChange={(e) => setSearchQuery(e.target.value)}
+             className="flex-1 w-0 min-w-0 bg-transparent py-2 px-1 text-xs text-white/90 outline-none placeholder:text-white/20"
+           />
+           <div className="flex items-center border-l border-white/5 shrink-0 px-1">
+             <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="bg-transparent pl-1 pr-4 lg:px-2 py-2 text-[10px] lg:text-xs text-white/60 outline-none cursor-pointer hover:text-white appearance-none md:appearance-auto"
+                style={{ WebkitAppearance: 'none', appearance: 'none', background: 'transparent' }}
+             >
+                <option value="updatedAt">Updated</option>
+                <option value="createdAt">Created</option>
+                <option value="title">A ➞ Z</option>
+             </select>
+           </div>
         </div>
       </div>
       
@@ -540,15 +594,46 @@ const HistoryModal = ({
   );
 };
 
+const InstallBanner = ({ onInstall, onDismiss }: { onInstall: () => void, onDismiss: () => void }) => (
+  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[200] w-[calc(100%-3rem)] max-w-sm animate-in slide-in-from-bottom-8 duration-500 ease-out">
+    <div className="bg-bg-secondary border border-white/10 p-5 rounded-2xl shadow-2xl backdrop-blur-md flex items-center gap-4">
+      <div className="w-12 h-12 bg-primary-accent rounded-xl flex items-center justify-center text-black shadow-[0_0_20px_rgba(0,255,0,0.2)] shrink-0">
+        <Smartphone size={24} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <h4 className="text-[11px] font-black uppercase tracking-widest text-white leading-tight mb-0.5">Install SongHub</h4>
+        <p className="text-[9px] text-white/50 uppercase tracking-tight leading-tight">Access your studio workspace offline</p>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <button 
+          onClick={onInstall}
+          className="bg-primary-accent text-black p-2 rounded-xl hover:shadow-[0_0_15px_rgba(0,255,0,0.3)] transition-all active:scale-95"
+        >
+          <ChevronRight size={18} />
+        </button>
+        <button 
+          onClick={onDismiss}
+          className="text-[8px] uppercase tracking-widest text-white/30 font-black hover:text-white transition-colors"
+        >
+          Later
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
 // --- Main App Root ---
 
 export default function App() {
   const [songs, setSongs] = useState<Song[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState('Workspace Ready');
+  const [saveStatus, setSaveStatus] = useState('Ready');
   const [mobileTab, setMobileTab] = useState<'lyrics' | 'details' | 'audio'>('lyrics');
   const [showSidebar, setShowSidebar] = useState(true);
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
   const [uploadingFiles, setUploadingFiles] = useState<{name: string, progress: number}[]>([]);
   const [confirmState, setConfirmState] = useState<{
     isOpen: boolean;
@@ -563,13 +648,69 @@ export default function App() {
   });
 
   useEffect(() => {
+    const handleBeforeInstallPrompt = (e: any) => {
+      // Prevent the mini-infobar from appearing on mobile
+      e.preventDefault();
+      // Stash the event so it can be triggered later.
+      setDeferredPrompt(e);
+      
+      // Update UI notify the user they can install the PWA
+      // Only show if not already in standalone mode and not dismissed this session
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+      const isDismissed = sessionStorage.getItem('pwa-dismissed') === 'true';
+
+      if (!isStandalone && !isDismissed) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    
+    // Show the install prompt
+    deferredPrompt.prompt();
+    
+    // Wait for the user to respond to the prompt
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log(`User response to the install prompt: ${outcome}`);
+    
+    // We've used the prompt, and can't use it again, throw it away
+    setDeferredPrompt(null);
+    setShowInstallBanner(false);
+  };
+
+  const handleDismissInstall = () => {
+    setShowInstallBanner(false);
+    sessionStorage.setItem('pwa-dismissed', 'true');
+  };
+
+  useEffect(() => {
     const loadedSongs = storage.getSongs();
     setSongs(loadedSongs);
     if (loadedSongs.length > 0) {
       setActiveId(loadedSongs[0].id);
       setShowSidebar(false);
     }
+    
+    // Load theme setting
+    const savedTheme = localStorage.getItem('songhub-theme') as 'dark' | 'light';
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.classList.toggle('light-mode', savedTheme === 'light');
+    }
   }, []);
+
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    localStorage.setItem('songhub-theme', newTheme);
+    document.documentElement.classList.toggle('light-mode', newTheme === 'light');
+  };
 
   const handleCreate = () => {
     const newSong: Song = {
@@ -611,7 +752,7 @@ export default function App() {
     storage.saveSong(updatedSong);
     setSaveStatus('Draft Saved');
     setSongs(storage.getSongs());
-    setTimeout(() => setSaveStatus('Workspace Ready'), 2000);
+    setTimeout(() => setSaveStatus('Ready'), 2000);
   };
 
   const handleAudioRename = (id: string, newName: string) => {
@@ -627,7 +768,7 @@ export default function App() {
     await storage.exportFullLibrary((msg) => {
       setSaveStatus(msg);
     });
-    setTimeout(() => setSaveStatus('Workspace Ready'), 3000);
+    setTimeout(() => setSaveStatus('Ready'), 3000);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -678,7 +819,7 @@ export default function App() {
       history: [...(currentSong.history || []), historyEntry]
     });
     setSaveStatus('Snapshot Saved');
-    setTimeout(() => setSaveStatus('Workspace Ready'), 2000);
+    setTimeout(() => setSaveStatus('Ready'), 2000);
   };
 
   const handleRestoreHistory = (entry: HistoryEntry) => {
@@ -714,6 +855,8 @@ export default function App() {
           onSelect={setActiveId} 
           onCreate={handleCreate} 
           onDelete={handleDelete}
+          theme={theme}
+          toggleTheme={toggleTheme}
           onExportZIP={handleExportZIP}
           onClose={songs.length > 0 ? () => setShowSidebar(false) : undefined}
         />
@@ -941,7 +1084,7 @@ export default function App() {
               <div className="w-16 h-16 bg-bg-tertiary border border-border rounded-2xl flex items-center justify-center mx-auto mb-6 text-white/5 rotate-12">
                 <Music size={32} />
               </div>
-              <h3 className="text-xl font-bold tracking-tighter mb-2 uppercase opacity-40">Workspace Ready</h3>
+              <h3 className="text-xl font-bold tracking-tighter mb-2 uppercase opacity-40">Ready</h3>
               <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-black mb-8 px-12">Capture your lightning before it strikes twice</p>
               <Button variant="primary" onClick={handleCreate} icon={Plus} className="mx-auto shadow-lg shadow-primary-accent/10 py-2 px-6">New Song Idea</Button>
             </div>
@@ -963,6 +1106,13 @@ export default function App() {
           song={currentSong}
           onClose={() => setHistoryModalOpen(false)}
           onRestore={handleRestoreHistory}
+        />
+      )}
+
+      {showInstallBanner && (
+        <InstallBanner 
+          onInstall={handleInstallClick}
+          onDismiss={handleDismissInstall}
         />
       )}
     </div>
