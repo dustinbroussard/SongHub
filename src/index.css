@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg-primary: #000000;
+  --color-bg-secondary: #0a0a0a;
+  --color-bg-tertiary: #111111;
+  --color-bg-quaternary: #222222;
+  --color-danger: #ff0000;
+  --color-primary-accent: #00ff00;
+  --color-secondary-text: #ffff00;
+  --color-tertiary-accent: #0000ff;
+  --color-border: #111111;
+}
+
+:root {
+  background-color: var(--color-bg-primary);
+  color: #ffffff;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: -0.01em;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* App handles its own scrolling */
+  background-color: var(--color-bg-primary);
+}
+
+/* Custom scrollbar for minimalist look */
+::-webkit-scrollbar {
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-tertiary);
+  border-radius: 2px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-bg-secondary);
+}
+
+.font-mono-tech {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.text-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.text-accent-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.2em;
+  font-weight: 800;
+  color: var(--color-secondary-text);
+}
+
+/* Custom transitions */
+.transition-all-custom {
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
