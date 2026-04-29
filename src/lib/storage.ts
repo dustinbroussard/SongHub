@@ -6,32 +6,38 @@ const SONGS_KEY = 'chord_songs';
 
 export const storage = {
   // Songs Metadata & Text Content
-  getSongs: (): Song[] => {
-    const data = localStorage.getItem(SONGS_KEY);
-    return data ? JSON.parse(data) : [];
+  getSongs: async (): Promise<Song[]> => {
+    let data;
+    try {
+      data = await get(SONGS_KEY);
+    } catch(e) {}
+    if (data) return data;
+    const old = localStorage.getItem(SONGS_KEY);
+    return old ? JSON.parse(old) : [];
   },
 
-  saveSongs: (songs: Song[]) => {
+  saveSongs: async (songs: Song[]) => {
+    await set(SONGS_KEY, songs);
     localStorage.setItem(SONGS_KEY, JSON.stringify(songs));
   },
 
-  getSong: (id: string): Song | undefined => {
-    return storage.getSongs().find(s => s.id === id);
+  getSong: async (id: string): Promise<Song | undefined> => {
+    return (await storage.getSongs()).find(s => s.id === id);
   },
 
-  saveSong: (song: Song) => {
-    const songs = storage.getSongs();
+  saveSong: async (song: Song) => {
+    const songs = await storage.getSongs();
     const index = songs.findIndex(s => s.id === song.id);
     if (index !== -1) {
       songs[index] = { ...song, updatedAt: Date.now() };
     } else {
       songs.push(song);
     }
-    storage.saveSongs(songs);
+    await storage.saveSongs(songs);
   },
 
   deleteSong: async (id: string) => {
-    const songs = storage.getSongs();
+    const songs = await storage.getSongs();
     const song = songs.find(s => s.id === id);
     
     // Delete audio files from IDB
@@ -42,7 +48,7 @@ export const storage = {
     }
 
     const filtered = songs.filter(s => s.id !== id);
-    storage.saveSongs(filtered);
+    await storage.saveSongs(filtered);
   },
 
   // Audio Blobs (IndexedDB)
@@ -79,9 +85,51 @@ export const storage = {
     URL.revokeObjectURL(url);
   },
 
+  exportSongZIP: async (song: Song, onProgress?: (msg: string) => void) => {
+    const zip = new JSZip();
+    const safeTitle = (song.metadata.title || 'Untitled').replace(/[/\\?%*:|"<>]/g, '-');
+    onProgress?.(`Starting export for "${safeTitle}"...`);
+
+    zip.file('metadata.json', JSON.stringify(song, null, 2));
+
+    let metadataTxt = `Title: ${song.metadata.title || 'Untitled'}\n`;
+    if (song.metadata.artist) metadataTxt += `Artist: ${song.metadata.artist}\n`;
+    if (song.metadata.tempo) metadataTxt += `Tempo: ${song.metadata.tempo} BPM\n`;
+    if (song.metadata.key) metadataTxt += `Key: ${song.metadata.key}\n`;
+    if (song.metadata.genre) metadataTxt += `Genre: ${song.metadata.genre}\n`;
+    zip.file('metadata.txt', metadataTxt);
+
+    if (song.lyrics) {
+      zip.file(`${safeTitle}.txt`, song.lyrics);
+    }
+
+    if (song.audioFiles && song.audioFiles.length > 0) {
+      const audioFolder = zip.folder('audio');
+      if (audioFolder) {
+        for (const audioFile of song.audioFiles) {
+          onProgress?.(`Fetching audio: ${audioFile.name}`);
+          const blob = await storage.getAudioBlob(audioFile.id);
+          if (blob) {
+            audioFolder.file(audioFile.name, blob);
+          }
+        }
+      }
+    }
+
+    onProgress?.('Generating ZIP file...');
+    const content = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(content);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${safeTitle}_songhub_export.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    onProgress?.('Export complete!');
+  },
+
   exportFullLibrary: async (onProgress?: (msg: string) => void) => {
     const zip = new JSZip();
-    const songs = storage.getSongs();
+    const songs = await storage.getSongs();
     
     if (songs.length === 0) {
       onProgress?.('No songs to export.');

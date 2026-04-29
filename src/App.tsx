@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Plus, Music, Trash2, Download, Copy, Check, FileAudio, Info, Edit3, FileText, ChevronLeft, Play, Pause, X, Search, ArrowUpDown, History as HistoryIcon, Clock, Save, RotateCcw, Smartphone, ChevronRight, Mic, Sun, Moon } from 'lucide-react';
+import { Plus, Music, Trash2, Download, Copy, Check, FileAudio, Info, Edit3, FileText, ChevronLeft, Play, Pause, X, Search, ArrowUpDown, History as HistoryIcon, Clock, Save, RotateCcw, Smartphone, ChevronRight, Mic, Sun, Moon, Archive, Wand2 } from 'lucide-react';
 import { Song, SongMetadata, AudioFile, HistoryEntry } from './types';
 import { storage } from './lib/storage';
 import { cn } from './lib/utils';
@@ -313,9 +313,109 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ file, onDelete, onRename }) =
 
 // --- Sub-sections ---
 
+const normalizeLyricsLabels = (text: string) => {
+  let verseCount = 0;
+
+  const labels = [
+    { target: 'INTRO', regex: /^(intro(?:duction)?)$/i },
+    { target: 'OUTRO', regex: /^(outro)$/i },
+    { target: 'CHORUS', regex: /^(chorus|chrs|cho)$/i },
+    { target: 'BRIDGE', regex: /^(bridge|brigde|bridg)$/i },
+    { target: 'REPRISE', regex: /^(reprise)$/i },
+    { target: 'REFRAIN', regex: /^(refrain|reffrain)$/i },
+    { target: 'INSTRUMENTAL BREAK', regex: /^(instrumental|inst|solo|music|break)$/i },
+    { target: 'PRE-CHORUS', regex: /^(pre-?chorus|pre)$/i }
+  ];
+
+  const normalizedLines = text.split('\n').map(line => {
+    const matchIndentation = line.match(/^\s*/);
+    const indentation = matchIndentation ? matchIndentation[0] : '';
+    
+    // remove brackets, asterisks, punctuation except dashes (wait, I should replace them with space)
+    const cleanLine = line.replace(/[\[\]\(\)\*\:\;\?\!\.\,]/g, ' ').trim().toLowerCase();
+    const words = cleanLine.split(/\s+/).filter(Boolean);
+
+    if (words.length > 0 && words.length <= 4) {
+      if (words.some(w => /^(verse|vers)$/i.test(w))) {
+        const isOnlyVerse = words.every(w => /^(verse|vers)$/i.test(w) || !isNaN(Number(w)));
+        if (isOnlyVerse) {
+          const numMatch = words.find(w => !isNaN(Number(w)));
+          if (numMatch) {
+            const num = parseInt(numMatch, 10);
+            verseCount = num;
+            return `${indentation}[VERSE ${num}]`;
+          } else {
+            verseCount++;
+            return `${indentation}[VERSE ${verseCount}]`;
+          }
+        }
+      }
+
+      if (words.some(w => /^(instrumental|inst|solo|music)$/i.test(w))) {
+        const isOnlyInst = words.every(w => /^(instrumental|inst|solo|music|break)$/i.test(w));
+        if (isOnlyInst) {
+          return `${indentation}[INSTRUMENTAL BREAK]`;
+        }
+      }
+
+      for (const label of labels) {
+        if (label.target === 'INSTRUMENTAL BREAK') continue;
+        
+        if (words.some(w => label.regex.test(w))) {
+           const isOnlyMatch = words.every(w => label.regex.test(w) || !isNaN(Number(w)));
+           if (isOnlyMatch) {
+             const numMatch = words.find(w => !isNaN(Number(w)));
+             if (numMatch && ['CHORUS', 'PRE-CHORUS'].includes(label.target)) {
+                return `${indentation}[${label.target} ${numMatch}]`;
+             }
+             return `${indentation}[${label.target}]`;
+           }
+        }
+      }
+    }
+
+    return line;
+  });
+
+  const spacedLines: string[] = [];
+  for (let i = 0; i < normalizedLines.length; i++) {
+    const line = normalizedLines[i];
+    const isSectionLabel = /^\s*\[[A-Z0-9 \-]+\]\s*$/.test(line);
+
+    if (isSectionLabel) {
+      // Remove any trailing blank lines that we might have just added
+      while (spacedLines.length > 0 && spacedLines[spacedLines.length - 1].trim() === '') {
+        spacedLines.pop();
+      }
+      // Add exactly one blank line before the label, unless it's the very first content
+      if (spacedLines.length > 0) {
+        spacedLines.push('');
+      }
+      spacedLines.push(line);
+
+      // Skip any blank lines immediately following the label
+      while (i + 1 < normalizedLines.length && normalizedLines[i + 1].trim() === '') {
+        i++;
+      }
+    } else {
+      spacedLines.push(line);
+    }
+  }
+
+  return spacedLines.join('\n');
+};
+
 const LyricsEditor = ({ lyrics, onChange }: { lyrics: string, onChange: (val: string) => void }) => {
   const [copied, setCopied] = useState(false);
+  const [fontSize, setFontSize] = useState(() => {
+    const saved = localStorage.getItem('lyricsFontSize');
+    return saved ? parseInt(saved, 10) : 18;
+  });
   const { isListening, startListening, stopListening } = useSpeechRecognition();
+
+  useEffect(() => {
+    localStorage.setItem('lyricsFontSize', fontSize.toString());
+  }, [fontSize]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(lyrics);
@@ -331,11 +431,40 @@ const LyricsEditor = ({ lyrics, onChange }: { lyrics: string, onChange: (val: st
     }
   };
 
+  const handleNormalize = () => {
+    onChange(normalizeLyricsLabels(lyrics));
+  };
+
   return (
     <div className="flex flex-col h-full bg-bg-primary overflow-hidden">
       <div className="px-4 lg:px-6 py-2.5 border-b border-white/5 flex items-center justify-between sticky top-0 bg-bg-primary/95 backdrop-blur-md z-10">
         <span className="text-accent-label">Lyrics</span>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 mr-2 border-r border-white/10 pr-4">
+            <button
+              onClick={() => setFontSize(Math.max(12, fontSize - 2))}
+              className="text-[10px] font-serif text-white/30 hover:text-white transition-colors w-4"
+              title="Decrease Font Size"
+            >
+              A-
+            </button>
+            <span className="text-[10px] text-white/50 w-5 text-center font-mono">{fontSize}</span>
+            <button
+              onClick={() => setFontSize(Math.min(48, fontSize + 2))}
+              className="text-[12px] font-serif text-white/30 hover:text-white transition-colors w-4"
+              title="Increase Font Size"
+            >
+              A+
+            </button>
+          </div>
+          <button 
+            onClick={handleNormalize}
+            className="flex items-center gap-1.5 text-[9px] uppercase font-black text-white/30 hover:text-primary-accent transition-colors tracking-widest"
+            title="Normalize Section Labels"
+          >
+            <Wand2 size={11} />
+            <span className="hidden sm:inline">Format</span>
+          </button>
           <button 
             onClick={handleVoiceInput}
             className={cn("flex items-center gap-1.5 text-[9px] uppercase font-black transition-colors tracking-widest", isListening ? "text-primary-accent" : "text-white/30 hover:text-white")}
@@ -356,8 +485,10 @@ const LyricsEditor = ({ lyrics, onChange }: { lyrics: string, onChange: (val: st
         <textarea 
           value={lyrics}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={handleNormalize}
           placeholder="[VERSE 1]\nStatic in the midnight air..."
-          className="w-full h-full min-h-[500px] bg-transparent border-none font-serif text-lg lg:text-xl leading-relaxed text-white/90 outline-none resize-none scroll-smooth placeholder:text-white/5 transition-all duration-300 ease-in-out focus:ring-0"
+          style={{ fontSize: `${fontSize}px` }}
+          className="w-full h-full min-h-[500px] bg-transparent border-none font-serif leading-relaxed text-white/90 outline-none resize-none scroll-smooth placeholder:text-white/5 transition-all duration-300 ease-in-out focus:ring-0"
         />
       </div>
     </div>
@@ -373,7 +504,9 @@ const Sidebar = ({
   onExportZIP,
   theme,
   toggleTheme,
-  onClose
+  onClose,
+  onEditTitle,
+  onExportSongZIP
 }: { 
   songs: Song[], 
   activeId: string | null, 
@@ -383,7 +516,9 @@ const Sidebar = ({
   onExportZIP: () => void,
   theme: 'dark' | 'light',
   toggleTheme: () => void,
-  onClose?: () => void
+  onClose?: () => void,
+  onEditTitle: (id: string, currentTitle: string, e: React.MouseEvent) => void,
+  onExportSongZIP: (song: Song, e: React.MouseEvent) => void
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'updatedAt' | 'createdAt' | 'title'>('updatedAt');
@@ -431,7 +566,9 @@ const Sidebar = ({
         </div>
         <div className="flex gap-2 shrink-0">
           <IconButton icon={theme === 'dark' ? Sun : Moon} onClick={toggleTheme} title="Toggle Theme" />
-          <Button variant="outline" icon={Plus} onClick={onCreate} className="hidden lg:flex" title="New Song">Create</Button>
+          <Button variant="primary" icon={Plus} onClick={onCreate} className="px-2 lg:px-3" title="New Song">
+            <span className="hidden lg:inline">Create</span>
+          </Button>
         </div>
       </div>
 
@@ -451,17 +588,18 @@ const Sidebar = ({
              onChange={(e) => setSearchQuery(e.target.value)}
              className="flex-1 w-0 min-w-0 bg-transparent py-2 px-1 text-xs text-white/90 outline-none placeholder:text-white/20"
            />
-           <div className="flex items-center border-l border-white/5 shrink-0 px-1">
+           <div className="flex items-center border-l border-white/5 shrink-0 px-1 relative">
              <select 
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-transparent pl-1 pr-4 lg:px-2 py-2 text-[10px] lg:text-xs text-white/60 outline-none cursor-pointer hover:text-white appearance-none md:appearance-auto"
+                className="bg-transparent pl-1 pr-4 lg:px-2 py-2 text-[10px] lg:text-xs text-white/60 outline-none cursor-pointer hover:text-white appearance-none"
                 style={{ WebkitAppearance: 'none', appearance: 'none', background: 'transparent' }}
              >
                 <option value="updatedAt">Updated</option>
                 <option value="createdAt">Created</option>
                 <option value="title">A ➞ Z</option>
              </select>
+             <ArrowUpDown size={10} className="absolute right-1 text-white/30 pointer-events-none" />
            </div>
         </div>
       </div>
@@ -499,21 +637,50 @@ const Sidebar = ({
                     {song.metadata.artist || "No Artist"} • {new Date(song.updatedAt).toLocaleDateString()}
                   </p>
                 </div>
-                <button 
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    e.preventDefault();
-                    onDelete(song.id, e);
-                  }}
-                  className={cn(
-                    "p-2 -mr-1 text-white/10 hover:text-danger transition-all",
-                    activeId === song.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                  )}
-                  title="Delete Workspace"
-                >
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center space-x-1.5 -mr-1">
+                  <button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onExportSongZIP(song, e);
+                    }}
+                    className={cn(
+                      "p-1.5 text-yellow-500 hover:bg-yellow-500/10 hover:shadow-[0_0_8px_rgba(234,179,8,0.5)] active:bg-yellow-500/10 active:shadow-[0_0_8px_rgba(234,179,8,0.5)] active:scale-95 rounded transition-all opacity-100",
+                    )}
+                    title="Export Song (ZIP)"
+                  >
+                    <Archive size={13} />
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onEditTitle(song.id, song.metadata.title || '', e);
+                    }}
+                    className={cn(
+                      "p-1.5 text-blue-500 hover:bg-blue-500/10 hover:shadow-[0_0_8px_rgba(59,130,246,0.5)] active:bg-blue-500/10 active:shadow-[0_0_8px_rgba(59,130,246,0.5)] active:scale-95 rounded transition-all opacity-100",
+                    )}
+                    title="Edit Title"
+                  >
+                    <Edit3 size={13} />
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      onDelete(song.id, e);
+                    }}
+                    className={cn(
+                      "p-1.5 text-red-500 hover:bg-red-500/10 hover:shadow-[0_0_8px_rgba(239,68,68,0.5)] active:bg-red-500/10 active:shadow-[0_0_8px_rgba(239,68,68,0.5)] active:scale-95 rounded transition-all opacity-100",
+                    )}
+                    title="Delete Workspace"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
             </div>
           ))
@@ -690,12 +857,18 @@ export default function App() {
   };
 
   useEffect(() => {
-    const loadedSongs = storage.getSongs();
-    setSongs(loadedSongs);
-    if (loadedSongs.length > 0) {
-      setActiveId(loadedSongs[0].id);
-      setShowSidebar(false);
+    async function init() {
+      if (navigator.storage && navigator.storage.persist) {
+        await navigator.storage.persist();
+      }
+      const loadedSongs = await storage.getSongs();
+      setSongs(loadedSongs);
+      if (loadedSongs.length > 0) {
+        setActiveId(loadedSongs[0].id);
+        setShowSidebar(false);
+      }
     }
+    init();
     
     // Load theme setting
     const savedTheme = localStorage.getItem('songhub-theme') as 'dark' | 'light';
@@ -712,7 +885,7 @@ export default function App() {
     document.documentElement.classList.toggle('light-mode', newTheme === 'light');
   };
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const newSong: Song = {
       id: crypto.randomUUID(),
       createdAt: Date.now(),
@@ -720,8 +893,8 @@ export default function App() {
       metadata: { title: "New Idea", artist: "", key: "", tempo: "", genre: "" },
       lyrics: "", notes: "", audioFiles: []
     };
-    storage.saveSong(newSong);
-    const updated = storage.getSongs();
+    await storage.saveSong(newSong);
+    const updated = await storage.getSongs();
     setSongs(updated);
     setActiveId(newSong.id);
     setShowSidebar(false);
@@ -737,7 +910,7 @@ export default function App() {
       message: "Are you sure you want to permanently delete this workspace and all associated recordings?",
       onConfirm: async () => {
         await storage.deleteSong(id);
-        const updated = storage.getSongs();
+        const updated = await storage.getSongs();
         setSongs(updated);
         if (activeId === id) {
           if (updated.length > 0) setActiveId(updated[0].id);
@@ -748,10 +921,10 @@ export default function App() {
     });
   };
 
-  const handleUpdate = (updatedSong: Song) => {
-    storage.saveSong(updatedSong);
+  const handleUpdate = async (updatedSong: Song) => {
+    await storage.saveSong(updatedSong);
     setSaveStatus('Draft Saved');
-    setSongs(storage.getSongs());
+    setSongs(await storage.getSongs());
     setTimeout(() => setSaveStatus('Ready'), 2000);
   };
 
@@ -766,6 +939,29 @@ export default function App() {
   const handleExportZIP = async () => {
     setSaveStatus('Preparing ZIP...');
     await storage.exportFullLibrary((msg) => {
+      setSaveStatus(msg);
+    });
+    setTimeout(() => setSaveStatus('Ready'), 3000);
+  };
+
+  const handleEditTitle = async (id: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newTitle = window.prompt("Edit song title:", currentTitle || 'Untitled');
+    if (newTitle !== null) {
+      const trimmed = newTitle.trim();
+      const song = songs.find(s => s.id === id);
+      if (song) {
+        const updatedSong = { ...song, metadata: { ...song.metadata, title: trimmed || 'Untitled' } };
+        await storage.saveSong(updatedSong);
+        setSongs(await storage.getSongs());
+      }
+    }
+  };
+
+  const handleExportSongZIP = async (song: Song, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSaveStatus('Preparing ZIP...');
+    await storage.exportSongZIP(song, (msg) => {
       setSaveStatus(msg);
     });
     setTimeout(() => setSaveStatus('Ready'), 3000);
@@ -806,7 +1002,7 @@ export default function App() {
 
   const currentSong = songs.find(s => s.id === activeId);
 
-  const handleSaveSnapshot = () => {
+  const handleSaveSnapshot = async () => {
     if (!currentSong) return;
     const historyEntry = {
       id: crypto.randomUUID(),
@@ -814,7 +1010,7 @@ export default function App() {
       lyrics: currentSong.lyrics,
       notes: currentSong.notes
     };
-    handleUpdate({
+    await handleUpdate({
       ...currentSong,
       history: [...(currentSong.history || []), historyEntry]
     });
@@ -822,7 +1018,7 @@ export default function App() {
     setTimeout(() => setSaveStatus('Ready'), 2000);
   };
 
-  const handleRestoreHistory = (entry: HistoryEntry) => {
+  const handleRestoreHistory = async (entry: HistoryEntry) => {
     if (!currentSong) return;
     
     // Save current state as snapshot before restoring
@@ -833,7 +1029,7 @@ export default function App() {
       notes: currentSong.notes
     };
 
-    handleUpdate({
+    await handleUpdate({
       ...currentSong,
       lyrics: entry.lyrics,
       notes: entry.notes,
@@ -859,6 +1055,8 @@ export default function App() {
           toggleTheme={toggleTheme}
           onExportZIP={handleExportZIP}
           onClose={songs.length > 0 ? () => setShowSidebar(false) : undefined}
+          onEditTitle={handleEditTitle}
+          onExportSongZIP={handleExportSongZIP}
         />
       </div>
 
