@@ -9,232 +9,129 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
-      bands: {
+      hub_bands: {
         Row: {
           id: string;
           name: string;
-          invite_code: string;
-          created_by: string;
+          owner_id: string;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
           name: string;
-          invite_code: string;
-          created_by: string;
+          owner_id: string;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
           name?: string;
-          invite_code?: string;
-          created_by?: string;
+          owner_id?: string;
           created_at?: string;
           updated_at?: string;
         };
       };
-      band_members: {
+      hub_band_members: {
         Row: {
-          id: string;
           band_id: string;
           user_id: string;
-          user_email: string;
-          user_name: string | null;
-          avatar_url: string | null;
-          role: 'admin' | 'member';
-          joined_at: string;
-          last_seen_at: string;
+          created_at: string;
         };
         Insert: {
-          id?: string;
           band_id: string;
           user_id: string;
-          user_email: string;
-          user_name?: string | null;
-          avatar_url?: string | null;
-          role?: 'admin' | 'member';
-          joined_at?: string;
-          last_seen_at?: string;
+          created_at?: string;
         };
         Update: {
-          id?: string;
           band_id?: string;
           user_id?: string;
-          user_email?: string;
-          user_name?: string | null;
-          avatar_url?: string | null;
-          role?: 'admin' | 'member';
-          joined_at?: string;
-          last_seen_at?: string;
+          created_at?: string;
         };
       };
-      songs: {
+      hub_new_ideas: {
         Row: {
           id: string;
           band_id: string;
+          title: string;
           created_by: string;
-          work_title: string;
-          metadata: {
-            title?: string;
-            artist?: string;
-            key?: string;
-            tempo?: string;
-            genre?: string;
-          };
           lyrics: string;
-          notes: string;
-          audio_files: {
-            id: string;
-            name: string;
-            type: string;
-            size: number;
-            uploaded_by: string;
-            uploaded_at: string;
-            storage_path: string;
-          }[];
+          tempo: number | null;
+          key: string | null;
+          genre: string | null;
+          artist: string | null;
+          project_notes: string | null;
           created_at: string;
           updated_at: string;
-          updated_by: string;
         };
         Insert: {
           id?: string;
           band_id: string;
+          title?: string;
           created_by: string;
-          work_title: string;
-          metadata?: {
-            title?: string;
-            artist?: string;
-            key?: string;
-            tempo?: string;
-            genre?: string;
-          };
           lyrics?: string;
-          notes?: string;
-          audio_files?: {
-            id: string;
-            name: string;
-            type: string;
-            size: number;
-            uploaded_by: string;
-            uploaded_at: string;
-            storage_path: string;
-          }[];
+          tempo?: number | null;
+          key?: string | null;
+          genre?: string | null;
+          artist?: string | null;
+          project_notes?: string | null;
           created_at?: string;
           updated_at?: string;
-          updated_by: string;
         };
         Update: {
           id?: string;
           band_id?: string;
+          title?: string;
           created_by?: string;
-          work_title?: string;
-          metadata?: {
-            title?: string;
-            artist?: string;
-            key?: string;
-            tempo?: string;
-            genre?: string;
-          };
           lyrics?: string;
-          notes?: string;
-          audio_files?: {
-            id: string;
-            name: string;
-            type: string;
-            size: number;
-            uploaded_by: string;
-            uploaded_at: string;
-            storage_path: string;
-          }[];
+          tempo?: number | null;
+          key?: string | null;
+          genre?: string | null;
+          artist?: string | null;
+          project_notes?: string | null;
           created_at?: string;
           updated_at?: string;
-          updated_by?: string;
         };
       };
-      song_feedback: {
+      hub_new_idea_audio_versions: {
         Row: {
           id: string;
-          song_id: string;
-          band_id: string;
-          user_id: string;
-          user_name: string;
-          feedback: string;
+          idea_id: string;
+          uploaded_by: string;
+          display_name: string;
+          original_file_name: string | null;
+          storage_bucket: string;
+          storage_path: string;
+          mime_type: string | null;
+          byte_size: number | null;
           created_at: string;
+          updated_at: string;
         };
         Insert: {
           id?: string;
-          song_id: string;
-          band_id: string;
-          user_id: string;
-          user_name: string;
-          feedback: string;
+          idea_id: string;
+          uploaded_by: string;
+          display_name: string;
+          original_file_name?: string | null;
+          storage_bucket?: string;
+          storage_path: string;
+          mime_type?: string | null;
+          byte_size?: number | null;
           created_at?: string;
+          updated_at?: string;
         };
         Update: {
           id?: string;
-          song_id?: string;
-          band_id?: string;
-          user_id?: string;
-          user_name?: string;
-          feedback?: string;
+          idea_id?: string;
+          uploaded_by?: string;
+          display_name?: string;
+          original_file_name?: string | null;
+          storage_bucket?: string;
+          storage_path?: string;
+          mime_type?: string | null;
+          byte_size?: number | null;
           created_at?: string;
-        };
-      };
-      user_last_seen: {
-        Row: {
-          user_id: string;
-          band_id: string;
-          last_seen_at: string;
-        };
-        Insert: {
-          user_id: string;
-          band_id: string;
-          last_seen_at?: string;
-        };
-        Update: {
-          user_id?: string;
-          band_id?: string;
-          last_seen_at?: string;
-        };
-      };
-      notifications: {
-        Row: {
-          id: string;
-          user_id: string;
-          band_id: string;
-          song_id: string;
-          type: 'song_created' | 'song_updated';
-          message: string;
-          from_user_id: string;
-          from_user_name: string;
-          is_read: boolean;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          band_id: string;
-          song_id: string;
-          type: 'song_created' | 'song_updated';
-          message: string;
-          from_user_id: string;
-          from_user_name: string;
-          is_read?: boolean;
-          created_at?: string;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          band_id?: string;
-          song_id?: string;
-          type?: 'song_created' | 'song_updated';
-          message?: string;
-          from_user_id?: string;
-          from_user_name?: string;
-          is_read?: boolean;
-          created_at?: string;
+          updated_at?: string;
         };
       };
     };
