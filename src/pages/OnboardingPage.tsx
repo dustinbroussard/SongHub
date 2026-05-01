@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -6,13 +6,18 @@ import { Music, Users, ArrowRight, Copy, Check, LogOut } from 'lucide-react';
 import { generateInviteCode } from '../lib/utils';
 
 export function OnboardingPage() {
-  const { user, signInWithGoogle, signOut, loading } = useAuth();
+  const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [bandName, setBandName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createdBand, setCreatedBand] = useState<{ id: string; name: string; invite_code: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState('');
+  const [checkingBands, setCheckingBands] = useState(true);
+  const [isInBand, setIsInBand] = useState(false);
+  const [inviteCode, setInviteCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [activeTab, setActiveTab] = useState<'create' | 'join'>('create');
 
   const handleCreateBand = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +39,7 @@ export function OnboardingPage() {
         .select()
         .single();
 
-      if (bandError) throw bandError;
+      if (bandError || !band) throw bandError || new Error('Failed to create band');
 
       // Add creator as admin member
       const { error: memberError } = await supabase
@@ -70,10 +75,99 @@ export function OnboardingPage() {
     navigate('/dashboard');
   };
 
-  if (loading) {
+  const handleJoinBand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteCode.trim() || !user) return;
+
+    setJoining(true);
+    setError('');
+
+    try {
+      // Find band by invite code
+      const { data: band, error: bandError } = await supabase
+        .from('bands')
+        .select('*')
+        .eq('invite_code', inviteCode.trim().toUpperCase())
+        .single();
+
+      if (bandError || !band) {
+        throw new Error('Invalid invite code');
+      }
+
+      // Check if already a member
+      const { data: existingMember } = await supabase
+        .from('band_members')
+        .select('id')
+        .eq('band_id', band.id)
+        .eq('user_id', user.id)
+        .single();
+
+      if (existingMember) {
+        navigate('/dashboard');
+        return;
+      }
+
+      // Add as member
+      const { error: joinError } = await supabase
+        .from('band_members')
+        .insert({
+          band_id: band.id,
+          user_id: user.id,
+          user_email: user.email || '',
+          user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Unknown',
+          avatar_url: user.user_metadata?.avatar_url || null,
+          role: 'member',
+        });
+
+      if (joinError) throw joinError;
+
+      navigate('/dashboard');
+    } catch (err: any) {
+      setError(err.message || 'Failed to join band');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  // Check if user is already in a band
+  useEffect(() => {
+    if (!user) {
+      setCheckingBands(false);
+      return;
+    }
+
+    const checkBandMembership = async () => {
+      setCheckingBands(true);
+      
+      const { data: memberBands, error } = await supabase
+        .from('band_members')
+        .select('id')
+        .eq('user_id', user.id)
+        .limit(1);
+
+      if (!error && memberBands && memberBands.length > 0) {
+        setIsInBand(true);
+        // Redirect to dashboard after a brief delay
+        setTimeout(() => {
+          navigate('/dashboard', { replace: true });
+        }, 500);
+      } else {
+        setIsInBand(false);
+        setCheckingBands(false);
+      }
+    };
+
+    checkBandMembership();
+  }, [user, navigate]);
+
+  // Show loading spinner while checking auth or band membership
+  if (authLoading || checkingBands) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-        <div className="animate-pulse text-primary-accent">Loading...</div>
+        <div className="text-center space-y-4">
+          <div className="w-12 h-12 border-4 border-primary-accent/30 border-t-primary-accent rounded-full animate-spin mx-auto" />
+          <p className="text-white/60">{authLoading ? 'Checking session...' : 'Checking your bands...'}</p>
+        </div>
       </div>
     );
   }
@@ -183,7 +277,7 @@ export function OnboardingPage() {
     );
   }
 
-  // Logged in - show create band form
+  // Logged in - show create or join band options
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-6">
       <div className="max-w-md w-full space-y-6">
@@ -193,48 +287,117 @@ export function OnboardingPage() {
           </div>
           <h1 className="text-2xl font-bold text-white">Welcome to SongHub</h1>
           <p className="text-white/50 text-sm">
-            Create a band to start collaborating on songs
+            Create a band or join an existing one to start collaborating
           </p>
         </div>
 
-        <form onSubmit={handleCreateBand} className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
-          <div className="space-y-2">
-            <label htmlFor="bandName" className="text-xs font-medium text-white/70 uppercase tracking-wider">
-              Band Name
-            </label>
-            <input
-              id="bandName"
-              type="text"
-              value={bandName}
-              onChange={(e) => setBandName(e.target.value)}
-              placeholder="Enter your band name"
-              className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-primary-accent/50"
-              maxLength={50}
-            />
-          </div>
-
-          {error && (
-            <p className="text-xs text-red-400">{error}</p>
-          )}
-
+        {/* Tabs */}
+        <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
           <button
-            type="submit"
-            disabled={!bandName.trim() || creating}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => setActiveTab('create')}
+            className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'create'
+                ? 'bg-primary-accent text-black'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
           >
-            {creating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Users className="w-4 h-4" />
-                Create Band
-              </>
-            )}
+            Create Band
           </button>
-        </form>
+          <button
+            onClick={() => setActiveTab('join')}
+            className={`flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-all ${
+              activeTab === 'join'
+                ? 'bg-primary-accent text-black'
+                : 'text-white/60 hover:text-white hover:bg-white/5'
+            }`}
+          >
+            Join Band
+          </button>
+        </div>
+
+        {/* Create Band Form */}
+        {activeTab === 'create' && (
+          <form onSubmit={handleCreateBand} className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="bandName" className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                Band Name
+              </label>
+              <input
+                id="bandName"
+                type="text"
+                value={bandName}
+                onChange={(e) => setBandName(e.target.value)}
+                placeholder="Enter your band name"
+                className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-primary-accent/50"
+                maxLength={50}
+              />
+            </div>
+
+            {error && (
+              <p className="text-xs text-red-400">{error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={!bandName.trim() || creating}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4" />
+                  Create Band
+                </>
+              )}
+            </button>
+          </form>
+        )}
+
+        {/* Join Band Form */}
+        {activeTab === 'join' && (
+          <form onSubmit={handleJoinBand} className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="inviteCode" className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                Invite Code
+              </label>
+              <input
+                id="inviteCode"
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                placeholder="Enter invite code (e.g., ABC12345)"
+                className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-primary-accent/50 uppercase"
+                maxLength={8}
+              />
+            </div>
+
+            {error && (
+              <p className="text-xs text-red-400">{error}</p>
+            )}
+
+            <button
+              type="submit"
+              disabled={!inviteCode.trim() || joining}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {joining ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  Joining...
+                </>
+              ) : (
+                <>
+                  <ArrowRight className="w-4 h-4" />
+                  Join Band
+                </>
+              )}
+            </button>
+          </form>
+        )}
 
         <button
           onClick={signOut}
