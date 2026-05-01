@@ -340,6 +340,7 @@ export function SongWorkspacePage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/dashboard')}
+              aria-label="Back to dashboard"
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               <ChevronLeft className="w-5 h-5" />
@@ -396,13 +397,14 @@ export function SongWorkspacePage() {
 
             <button
               onClick={() => setDarkMode(!darkMode)}
+              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
             </button>
 
             <div className="relative group">
-              <button className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}>
+              <button aria-label="More options" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}>
                 <MoreVertical className="w-5 h-5" />
               </button>
               
@@ -528,6 +530,7 @@ export function SongWorkspacePage() {
                       >
                         <button
                           onClick={() => playAudio(file)}
+                          aria-label={playingId === file.id ? "Pause" : "Play"}
                           className={`p-2 rounded-lg ${playingId === file.id ? 'bg-primary-accent text-black' : darkMode ? 'bg-white/10 text-white/60' : 'bg-gray-200 text-gray-600'}`}
                         >
                           {playingId === file.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -545,6 +548,7 @@ export function SongWorkspacePage() {
                         {canEdit && isUploader && (
                           <button
                             onClick={() => deleteAudioFile(file.id)}
+                            aria-label="Delete audio file"
                             className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />

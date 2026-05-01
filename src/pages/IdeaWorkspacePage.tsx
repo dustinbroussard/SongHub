@@ -230,6 +230,7 @@ export function IdeaWorkspacePage() {
           <div className="flex items-center gap-4">
             <button
               onClick={() => navigate('/dashboard')}
+              aria-label="Back to dashboard"
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               <ChevronLeft className="w-5 h-5" />
@@ -266,6 +267,7 @@ export function IdeaWorkspacePage() {
 
             <button
               onClick={() => setDarkMode(!darkMode)}
+              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
@@ -273,6 +275,7 @@ export function IdeaWorkspacePage() {
 
             <button
               onClick={handleSignOut}
+              aria-label="Sign out"
               className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
             >
               <LogOut className="w-5 h-5" />
@@ -362,6 +365,7 @@ export function IdeaWorkspacePage() {
                     <div key={file.id} className={`flex items-center gap-3 p-3 rounded-lg ${darkMode ? 'bg-black/30' : 'bg-gray-50'}`}>
                       <button
                         onClick={() => togglePlay(file)}
+                        aria-label={playingId === file.id ? "Pause" : "Play"}
                         className="p-2 rounded-full bg-primary-accent/20 text-primary-accent hover:bg-primary-accent/30 transition-colors"
                       >
                         {playingId === file.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
@@ -383,6 +387,7 @@ export function IdeaWorkspacePage() {
                         {canEdit && (
                           <button
                             onClick={() => deleteAudioFile(file.id)}
+                            aria-label="Delete audio file"
                             className="p-2 rounded-lg hover:bg-red-500/20 text-red-400 transition-colors"
                           >
                             <Trash2 className="w-4 h-4" />

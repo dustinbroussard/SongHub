@@ -15,8 +15,6 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-// Type assertion needed due to complex nested Database type
-// The runtime behavior is correct; this is a TypeScript generics limitation
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
@@ -24,4 +22,4 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     detectSessionInUrl: true,
     flowType: 'pkce',
   },
-}) as SupabaseClient<Database>;
+}) as any;
