@@ -25,7 +25,6 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.14.2",
-    "supabase": "^2.96.0",
     "tailwind-merge": "^3.5.0",
     "uuid": "^14.0.0",
     "vite": "^6.2.3"
@@ -35,6 +34,7 @@
     "@types/node": "^22.14.0",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.21",
+    "supabase": "^2.98.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
