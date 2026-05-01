@@ -52,6 +52,39 @@ CREATE TABLE hub_new_idea_audio_versions (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- FUNCTIONS
+
+-- Check if user is a member of a band (Security Definer to bypass RLS recursion)
+CREATE OR REPLACE FUNCTION public.is_band_member(check_band_id UUID)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.hub_band_members
+    WHERE band_id = check_band_id
+    AND user_id = auth.uid()
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Update timestamps trigger
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_bands_updated_at
+    BEFORE UPDATE ON hub_bands
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_songs_updated_at
+    BEFORE UPDATE ON hub_new_ideas
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at_column();
+
 -- RLS POLICIES
 
 -- hub_bands
@@ -60,10 +93,7 @@ ALTER TABLE hub_bands ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view their bands"
 ON hub_bands FOR SELECT
 USING (
-    owner_id = auth.uid() OR
-    id IN (
-        SELECT band_id FROM hub_band_members WHERE user_id = auth.uid()
-    )
+    owner_id = auth.uid() OR is_band_member(id)
 );
 
 CREATE POLICY "Owners can update their bands"
@@ -84,9 +114,7 @@ ALTER TABLE hub_band_members ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view band members of their bands"
 ON hub_band_members FOR SELECT
 USING (
-    band_id IN (
-        SELECT band_id FROM hub_band_members WHERE user_id = auth.uid()
-    )
+    is_band_member(band_id)
 );
 
 CREATE POLICY "Users can join bands"
@@ -99,17 +127,13 @@ ALTER TABLE hub_new_ideas ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view ideas in their bands"
 ON hub_new_ideas FOR SELECT
 USING (
-    band_id IN (
-        SELECT band_id FROM hub_band_members WHERE user_id = auth.uid()
-    )
+    is_band_member(band_id)
 );
 
 CREATE POLICY "Users can create ideas in their bands"
 ON hub_new_ideas FOR INSERT
 WITH CHECK (
-    band_id IN (
-        SELECT band_id FROM hub_band_members WHERE user_id = auth.uid()
-    )
+    is_band_member(band_id)
 );
 
 CREATE POLICY "Creators can update their ideas"
