@@ -9,6 +9,7 @@ CREATE TABLE hub_bands (
     id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
     name TEXT NOT NULL,
     owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    invite_code TEXT NOT NULL UNIQUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -54,6 +55,25 @@ CREATE TABLE hub_new_idea_audio_versions (
 
 -- FUNCTIONS
 
+-- Generate random invite code
+CREATE OR REPLACE FUNCTION public.generate_invite_code()
+RETURNS TEXT AS $$
+BEGIN
+  RETURN encode(gen_random_bytes(16), 'hex');
+END;
+$$ LANGUAGE plpgsql;
+
+-- Auto-generate invite code for new bands
+CREATE OR REPLACE FUNCTION public.set_invite_code()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.invite_code IS NULL THEN
+    NEW.invite_code := public.generate_invite_code();
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Check if user is a member of a band (Security Definer to bypass RLS recursion)
 CREATE OR REPLACE FUNCTION public.is_band_member(check_band_id UUID)
 RETURNS BOOLEAN AS $$
@@ -74,6 +94,11 @@ BEGIN
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_invite_code_trigger
+    BEFORE INSERT ON hub_bands
+    FOR EACH ROW
+    EXECUTE FUNCTION set_invite_code();
 
 CREATE TRIGGER update_bands_updated_at
     BEFORE UPDATE ON hub_bands
@@ -179,3 +204,4 @@ USING (uploaded_by = auth.uid());
 -- Allowed: SELECT
 -- Check: (storage.foldername(name))[1] IN (SELECT id::text FROM hub_bands)
 -- This might need adjustment based on folder structure.
+Tell me more about how you'd think she's dress.  i'm still undecided on this and could use some input

@@ -1,7 +1,7 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { OnboardingPage, DashboardPage, IdeaWorkspacePage, AuthCallbackPage } from './pages';
+import { OnboardingPage, DashboardPage, IdeaWorkspacePage, AuthCallbackPage, JoinBandPage } from './pages';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -26,6 +26,7 @@ function AppRoutes() {
     <Routes>
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/songhub/onboarding" element={<OnboardingPage />} />
+      <Route path="/join" element={<JoinBandPage />} />
       <Route
         path="/dashboard"
         element={

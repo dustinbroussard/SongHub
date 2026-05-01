@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Music, Users, ArrowRight, LogOut } from 'lucide-react';
+import { Music, Users, ArrowRight, LogOut, Copy, Check } from 'lucide-react';
 
 export function OnboardingPage() {
   const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
@@ -11,6 +11,22 @@ export function OnboardingPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const [checkingBands, setCheckingBands] = useState(true);
+  const [createdBand, setCreatedBand] = useState<{ id: string; name: string; invite_code: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyLink = async () => {
+    if (!createdBand) return;
+    
+    const joinUrl = `${window.location.origin}/join?code=${createdBand.invite_code}`;
+    try {
+      await navigator.clipboard.writeText(joinUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      // Fallback for browsers that don't support clipboard API
+      console.error('Failed to copy link:', err);
+    }
+  };
 
   const handleCreateBand = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,7 +36,7 @@ export function OnboardingPage() {
     setError('');
 
     try {
-      // Create band with owner_id
+      // Create band with owner_id (invite_code will be auto-generated)
       const { data: band, error: bandError } = await supabase
         .from('hub_bands')
         .insert({
@@ -42,8 +58,8 @@ export function OnboardingPage() {
 
       if (memberError) throw memberError;
 
-      // Go directly to dashboard after creating band
-      navigate('/dashboard');
+      // Show success state with join link
+      setCreatedBand(band);
     } catch (err: any) {
       setError(err.message || 'Failed to create band');
     } finally {
@@ -142,6 +158,57 @@ export function OnboardingPage() {
           <p className="text-center text-xs text-white/30">
             Your Google profile will be shared across SongHub and SongBinder
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show success state with join link
+  if (createdBand) {
+    const joinUrl = `${window.location.origin}/join?code=${createdBand.invite_code}`;
+    
+    return (
+      <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-6">
+        <div className="max-w-md w-full space-y-6">
+          <div className="text-center space-y-4">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-green-500/20 border border-green-500/30">
+              <Music className="w-8 h-8 text-green-400" />
+            </div>
+            <h1 className="text-2xl font-bold text-white">Band Created!</h1>
+            <p className="text-white/50 text-sm">
+              Your band "{createdBand.name}" is ready. Share this link to invite members.
+            </p>
+          </div>
+
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-6 space-y-4">
+            <div className="space-y-2">
+              <label className="text-xs font-medium text-white/70 uppercase tracking-wider">
+                Invite Link
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={joinUrl}
+                  readOnly
+                  className="flex-1 px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white text-sm font-mono"
+                />
+                <button
+                  onClick={handleCopyLink}
+                  className="flex items-center justify-center w-10 h-10 bg-primary-accent text-black rounded-xl hover:bg-primary-accent/90 transition-all duration-300"
+                >
+                  {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300"
+            >
+              <ArrowRight className="w-4 h-4" />
+              Go to Dashboard
+            </button>
+          </div>
         </div>
       </div>
     );

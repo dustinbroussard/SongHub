@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import { Music, Users, ArrowRight, LogOut, AlertCircle } from 'lucide-react';
 
 export function JoinBandPage() {
-  const { inviteCode } = useParams<{ inviteCode: string }>();
+  const { code } = useParams<{ code: string }>();
   const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   
@@ -16,13 +16,13 @@ export function JoinBandPage() {
   const [joined, setJoined] = useState(false);
 
   useEffect(() => {
-    if (!inviteCode) return;
+    if (!code) return;
 
     const fetchBand = async () => {
       const { data, error } = await supabase
-        .from('bands')
+        .from('hub_bands')
         .select('id, name')
-        .eq('invite_code', inviteCode.toUpperCase())
+        .eq('invite_code', code)
         .single();
 
       if (error || !data) {
@@ -34,42 +34,21 @@ export function JoinBandPage() {
     };
 
     fetchBand();
-  }, [inviteCode]);
+  }, [code]);
 
   const handleJoinBand = async () => {
-    if (!user || !band) return;
+    if (!user || !band || !code) return;
 
     setJoining(true);
     setError('');
 
     try {
-      // Check if already a member
-      const { data: existingMember } = await supabase
-        .from('band_members')
-        .select('id')
-        .eq('band_id', band.id)
-        .eq('user_id', user.id)
-        .single();
+      // Call the Edge Function to join the band
+      const { data, error } = await supabase.functions.invoke('join-band', {
+        body: { invite_code: code }
+      });
 
-      if (existingMember) {
-        setJoined(true);
-        setTimeout(() => navigate('/dashboard'), 1500);
-        return;
-      }
-
-      // Add as member
-      const { error: joinError } = await supabase
-        .from('band_members')
-        .insert({
-          band_id: band.id,
-          user_id: user.id,
-          user_email: user.email || '',
-          user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Unknown',
-          avatar_url: user.user_metadata?.avatar_url || null,
-          role: 'member',
-        });
-
-      if (joinError) throw joinError;
+      if (error) throw error;
 
       setJoined(true);
       setTimeout(() => navigate('/dashboard'), 1500);
