@@ -16,43 +16,64 @@ export function JoinBandPage() {
   const [joined, setJoined] = useState(false);
 
   useEffect(() => {
-    if (!code) return;
+    if (!code) {
+      setError('No invite code provided');
+      setLoading(false);
+      return;
+    }
 
     const fetchBand = async () => {
-      const { data, error } = await supabase
-        .from('hub_bands')
-        .select('id, name')
-        .eq('invite_code', code)
-        .single();
+      try {
+        console.log('Fetching band for invite code:', code);
+        const { data, error } = await supabase
+          .from('hub_bands')
+          .select('id, name')
+          .eq('invite_code', code)
+          .single();
 
-      if (error || !data) {
-        setError('Invalid or expired invite link');
-      } else {
-        setBand(data);
+        console.log('Band fetch result:', { data, error });
+
+        if (error || !data) {
+          console.error('Band fetch error:', error);
+          setError('Invalid or expired invite link');
+        } else {
+          setBand(data);
+        }
+      } catch (err) {
+        console.error('Unexpected error fetching band:', err);
+        setError('Failed to load band information');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     fetchBand();
   }, [code]);
 
   const handleJoinBand = async () => {
-    if (!user || !band || !code) return;
+    if (!user || !band || !code) {
+      console.error('Missing required data:', { user: !!user, band: !!band, code: !!code });
+      return;
+    }
 
     setJoining(true);
     setError('');
 
     try {
+      console.log('Joining band with invite code:', code);
       // Call the Edge Function to join the band
       const { data, error } = await supabase.functions.invoke('join-band', {
         body: { invite_code: code }
       });
+
+      console.log('Join band result:', { data, error });
 
       if (error) throw error;
 
       setJoined(true);
       setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: any) {
+      console.error('Join band error:', err);
       setError(err.message || 'Failed to join band');
     } finally {
       setJoining(false);

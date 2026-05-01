@@ -52,6 +52,147 @@ export interface Database {
           created_at?: string;
         };
       };
+      songs: {
+        Row: {
+          id: string;
+          band_id: string;
+          work_title: string;
+          lyrics: string;
+          notes: string;
+          metadata: {
+            title?: string;
+            artist?: string;
+            key?: string;
+            tempo?: string;
+            genre?: string;
+          } | null;
+          audio_files: {
+            id: string;
+            name: string;
+            type: string;
+            size: number;
+            uploaded_by: string;
+            uploaded_at: string;
+            storage_path: string;
+            url?: string;
+          }[] | null;
+          created_at: string;
+          updated_at: string;
+          updated_by: string;
+        };
+        Insert: {
+          id?: string;
+          band_id: string;
+          work_title: string;
+          lyrics?: string;
+          notes?: string;
+          metadata?: {
+            title?: string;
+            artist?: string;
+            key?: string;
+            tempo?: string;
+            genre?: string;
+          } | null;
+          audio_files?: {
+            id: string;
+            name: string;
+            type: string;
+            size: number;
+            uploaded_by: string;
+            uploaded_at: string;
+            storage_path: string;
+            url?: string;
+          }[] | null;
+          created_at?: string;
+          updated_at?: string;
+          updated_by?: string;
+        };
+        Update: {
+          id?: string;
+          band_id?: string;
+          work_title?: string;
+          lyrics?: string;
+          notes?: string;
+          metadata?: {
+            title?: string;
+            artist?: string;
+            key?: string;
+            tempo?: string;
+            genre?: string;
+          } | null;
+          audio_files?: {
+            id: string;
+            name: string;
+            type: string;
+            size: number;
+            uploaded_by: string;
+            uploaded_at: string;
+            storage_path: string;
+            url?: string;
+          }[] | null;
+          created_at?: string;
+          updated_at?: string;
+          updated_by?: string;
+        };
+      };
+      band_members: {
+        Row: {
+          id: string;
+          band_id: string;
+          user_id: string;
+          user_name: string;
+          avatar_url?: string;
+          role: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          band_id: string;
+          user_id: string;
+          user_name: string;
+          avatar_url?: string;
+          role?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          band_id?: string;
+          user_id?: string;
+          user_name?: string;
+          avatar_url?: string;
+          role?: string;
+          created_at?: string;
+        };
+      };
+      song_feedback: {
+        Row: {
+          id: string;
+          song_id: string;
+          band_id: string;
+          user_id: string;
+          user_name: string;
+          feedback: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          song_id: string;
+          band_id: string;
+          user_id: string;
+          user_name: string;
+          feedback: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          song_id?: string;
+          band_id?: string;
+          user_id?: string;
+          user_name?: string;
+          feedback?: string;
+          created_at?: string;
+        };
+      };
       hub_new_ideas: {
         Row: {
           id: string;

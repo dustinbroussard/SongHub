@@ -88,7 +88,7 @@ export function SongWorkspacePage() {
         .from('songs')
         .select('*')
         .eq('id', songId)
-        .single();
+        .single() as { data: Song | null; error: any };
 
       if (!songData) {
         navigate('/dashboard');
@@ -112,7 +112,7 @@ export function SongWorkspacePage() {
       const { data: membersData } = await supabase
         .from('band_members')
         .select('*')
-        .eq('band_id', songData.band_id);
+        .eq('band_id', songData.band_id) as { data: BandMember[] | null; error: any };
 
       if (membersData) {
         setMembers(membersData);
@@ -154,17 +154,14 @@ export function SongWorkspacePage() {
 
     setSaving(true);
     
-    const { error } = await supabase
-      .from('songs')
-      .update({
+    const { error } = await (supabase.from('songs') as any).update({
         work_title: workTitle,
         lyrics,
         notes,
         metadata,
         audio_files: audioFiles.map(({ url, ...rest }) => rest),
         updated_by: user.id,
-      })
-      .eq('id', song.id);
+      }).eq('id', song.id);
 
     if (!error) {
       setSong(prev => prev ? { ...prev, updated_at: new Date().toISOString() } : null);
@@ -206,13 +203,10 @@ export function SongWorkspacePage() {
     setAudioFiles(updatedFiles);
 
     // Save to database
-    await supabase
-      .from('songs')
-      .update({
+    await (supabase.from('songs') as any).update({
         audio_files: updatedFiles.map(({ url, ...rest }) => rest),
         updated_by: user.id,
-      })
-      .eq('id', song.id);
+      }).eq('id', song.id);
 
     // Get signed URL
     const { data: urlData } = await supabase
@@ -238,13 +232,10 @@ export function SongWorkspacePage() {
     const updatedFiles = audioFiles.filter(f => f.id !== fileId);
     setAudioFiles(updatedFiles);
 
-    await supabase
-      .from('songs')
-      .update({
+    await (supabase.from('songs') as any).update({
         audio_files: updatedFiles.map(({ url, ...rest }) => rest),
         updated_by: user!.id,
-      })
-      .eq('id', song.id);
+      }).eq('id', song.id);
   };
 
   const playAudio = (file: AudioFile) => {
@@ -276,9 +267,9 @@ export function SongWorkspacePage() {
         user_id: user.id,
         user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Unknown',
         feedback: newFeedback.trim(),
-      })
+      } as any)
       .select()
-      .single();
+      .single() as { data: SongFeedback | null; error: any };
 
     if (!error && data) {
       setFeedback(prev => [data, ...prev]);
