@@ -2,28 +2,9 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { 
-  ChevronLeft, 
-  Save, 
-  Play, 
-  Pause, 
-  Upload, 
-  Trash2, 
-  Download, 
-  FileAudio,
-  Send,
-  MessageSquare,
-  Mic,
-  Sun,
-  Moon,
-  MoreVertical,
-  LogOut,
-  Users,
-  Plus,
-  Share2,
-  Bell,
-  Check
-} from 'lucide-react';
+import { ChevronLeft, Save, FileText, Music, Info, Share2, Send, Check, Plus } from 'lucide-react';
+import { Button, IconButton, ConfirmModal, Input, AudioPlayer, LyricsEditor } from '../components/ui';
+import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
 type Song = Database['public']['Tables']['songs']['Row'];
@@ -43,7 +24,7 @@ interface AudioFile {
 
 export function SongWorkspacePage() {
   const { songId } = useParams<{ songId: string }>();
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   
   const [song, setSong] = useState<Song | null>(null);
@@ -51,8 +32,9 @@ export function SongWorkspacePage() {
   const [feedback, setFeedback] = useState<SongFeedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('READY');
+  const [mobileTab, setMobileTab] = useState<'lyrics' | 'details' | 'audio'>('lyrics');
   
-  // Edit states
   const [workTitle, setWorkTitle] = useState('');
   const [lyrics, setLyrics] = useState('');
   const [notes, setNotes] = useState('');
@@ -67,14 +49,21 @@ export function SongWorkspacePage() {
   const [newFeedback, setNewFeedback] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   
-  // Audio playback
-  const [playingId, setPlayingId] = useState<string | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const [darkMode, setDarkMode] = useState(true);
-  
-  // Notifications
   const [notifying, setNotifying] = useState(false);
   const [notified, setNotified] = useState(false);
+  
+  const [uploadingFiles, setUploadingFiles] = useState<{name: string, progress: number}[]>([]);
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
   const isOwner = song?.created_by === user?.id;
   const canEdit = isOwner;
@@ -83,7 +72,6 @@ export function SongWorkspacePage() {
     if (!songId || !user) return;
 
     const fetchSong = async () => {
-      // Fetch song
       const { data: songData } = await supabase
         .from('songs')
         .select('*')
@@ -106,30 +94,20 @@ export function SongWorkspacePage() {
         tempo: songData.metadata?.tempo || '',
         genre: songData.metadata?.genre || '',
       });
-      setAudioFiles(songData.audio_files || []);
-
-      // Fetch band members
+      
       const { data: membersData } = await supabase
         .from('band_members')
         .select('*')
         .eq('band_id', songData.band_id) as { data: BandMember[] | null; error: any };
+      if (membersData) setMembers(membersData);
 
-      if (membersData) {
-        setMembers(membersData);
-      }
-
-      // Fetch feedback
       const { data: feedbackData } = await supabase
         .from('song_feedback')
         .select('*')
         .eq('song_id', songId)
         .order('created_at', { ascending: false });
+      if (feedbackData) setFeedback(feedbackData);
 
-      if (feedbackData) {
-        setFeedback(feedbackData);
-      }
-
-      // Get audio file URLs
       if (songData.audio_files && songData.audio_files.length > 0) {
         const filesWithUrls = await Promise.all(
           songData.audio_files.map(async (file: AudioFile) => {
@@ -141,18 +119,21 @@ export function SongWorkspacePage() {
           })
         );
         setAudioFiles(filesWithUrls);
+      } else {
+        setAudioFiles([]);
       }
 
       setLoading(false);
     };
 
     fetchSong();
+    document.documentElement.classList.remove('light-mode');
   }, [songId, user, navigate]);
 
   const saveSong = async () => {
     if (!song || !user) return;
-
     setSaving(true);
+    setSaveStatus('SAVING...');
     
     const { error } = await (supabase.from('songs') as any).update({
         work_title: workTitle,
@@ -165,70 +146,58 @@ export function SongWorkspacePage() {
 
     if (!error) {
       setSong(prev => prev ? { ...prev, updated_at: new Date().toISOString() } : null);
+      setSaveStatus('SAVED');
+      setTimeout(() => setSaveStatus('READY'), 2000);
+    } else {
+      setSaveStatus('ERROR');
     }
-
     setSaving(false);
   };
 
   const handleAudioUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || !song || !user) return;
+    const files = Array.from(e.target.files) as File[];
 
-    const file = e.target.files[0];
-    const fileId = crypto.randomUUID();
-    const storagePath = `${song.band_id}/${song.id}/${fileId}`;
+    for (const file of files) {
+      const fileId = crypto.randomUUID();
+      const storagePath = `${song.band_id}/${song.id}/${fileId}`;
+      setUploadingFiles(prev => [...prev, { name: file.name, progress: 10 }]);
 
-    // Upload to Supabase Storage
-    const { error: uploadError } = await supabase
-      .storage
-      .from('audio-files')
-      .upload(storagePath, file);
+      const { error: uploadError } = await supabase.storage.from('audio-files').upload(storagePath, file);
+      if (uploadError) {
+        setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
+        continue;
+      }
+      setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 60 } : f));
 
-    if (uploadError) {
-      alert('Failed to upload audio file');
-      return;
-    }
+      const newAudioFile: AudioFile = {
+        id: fileId,
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        uploaded_by: user.id,
+        uploaded_at: new Date().toISOString(),
+        storage_path: storagePath,
+      };
 
-    // Add to song's audio_files
-    const newAudioFile: AudioFile = {
-      id: fileId,
-      name: file.name,
-      type: file.type,
-      size: file.size,
-      uploaded_by: user.id,
-      uploaded_at: new Date().toISOString(),
-      storage_path: storagePath,
-    };
+      const updatedFiles = [...audioFiles, newAudioFile];
+      await (supabase.from('songs') as any).update({
+          audio_files: updatedFiles.map(({ url, ...rest }) => rest),
+          updated_by: user.id,
+        }).eq('id', song.id);
 
-    const updatedFiles = [...audioFiles, newAudioFile];
-    setAudioFiles(updatedFiles);
-
-    // Save to database
-    await (supabase.from('songs') as any).update({
-        audio_files: updatedFiles.map(({ url, ...rest }) => rest),
-        updated_by: user.id,
-      }).eq('id', song.id);
-
-    // Get signed URL
-    const { data: urlData } = await supabase
-      .storage
-      .from('audio-files')
-      .createSignedUrl(storagePath, 3600);
-
-    if (urlData) {
-      setAudioFiles(prev => prev.map(f => f.id === fileId ? { ...f, url: urlData.signedUrl } : f));
+      const { data: urlData } = await supabase.storage.from('audio-files').createSignedUrl(storagePath, 3600);
+      setAudioFiles([...audioFiles, { ...newAudioFile, url: urlData?.signedUrl }]);
+      setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
     }
   };
 
   const deleteAudioFile = async (fileId: string) => {
     if (!song || !canEdit) return;
-
     const file = audioFiles.find(f => f.id === fileId);
     if (!file) return;
 
-    // Delete from storage
     await supabase.storage.from('audio-files').remove([file.storage_path]);
-
-    // Update song
     const updatedFiles = audioFiles.filter(f => f.id !== fileId);
     setAudioFiles(updatedFiles);
 
@@ -238,25 +207,19 @@ export function SongWorkspacePage() {
       }).eq('id', song.id);
   };
 
-  const playAudio = (file: AudioFile) => {
-    if (playingId === file.id) {
-      audioRef.current?.pause();
-      setPlayingId(null);
-    } else {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-      audioRef.current = new Audio(file.url);
-      audioRef.current.play();
-      audioRef.current.onended = () => setPlayingId(null);
-      setPlayingId(file.id);
-    }
+  const renameAudioFile = async (id: string, newName: string) => {
+    if (!song || !canEdit) return;
+    const updatedFiles = audioFiles.map(f => f.id === id ? { ...f, name: newName } : f);
+    setAudioFiles(updatedFiles);
+    await (supabase.from('songs') as any).update({
+      audio_files: updatedFiles.map(({ url, ...rest }) => rest),
+      updated_by: user!.id,
+    }).eq('id', song.id);
   };
 
   const submitFeedback = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFeedback.trim() || !song || !user || isOwner) return;
-
     setSubmittingFeedback(true);
 
     const { data, error } = await supabase
@@ -275,23 +238,13 @@ export function SongWorkspacePage() {
       setFeedback(prev => [data, ...prev]);
       setNewFeedback('');
     }
-
     setSubmittingFeedback(false);
-  };
-
-  const handleSignOut = async () => {
-    await signOut();
-    navigate('/songhub/onboarding');
   };
 
   const notifyBandMembers = async () => {
     if (!song || !user || !isOwner) return;
-
     setNotifying(true);
-
-    // Get all band members except the owner
     const otherMembers = members.filter(m => m.user_id !== user.id);
-
     if (otherMembers.length === 0) {
       setNotifying(false);
       setNotified(true);
@@ -299,7 +252,6 @@ export function SongWorkspacePage() {
       return;
     }
 
-    // Create notifications for each member
     const notifications = otherMembers.map(member => ({
       user_id: member.user_id,
       band_id: song.band_id,
@@ -310,22 +262,18 @@ export function SongWorkspacePage() {
       from_user_name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Unknown',
     }));
 
-    const { error } = await supabase
-      .from('notifications')
-      .insert(notifications);
-
+    const { error } = await supabase.from('notifications').insert(notifications);
     if (!error) {
       setNotified(true);
       setTimeout(() => setNotified(false), 2000);
     }
-
     setNotifying(false);
   };
 
   if (loading) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-        <div className="animate-pulse text-primary-accent">Loading...</div>
+        <div className="animate-pulse text-primary-accent text-[10px] uppercase tracking-widest">Loading...</div>
       </div>
     );
   }
@@ -333,351 +281,311 @@ export function SongWorkspacePage() {
   if (!song) return null;
 
   return (
-    <div className={`min-h-screen ${darkMode ? 'bg-bg-primary' : 'bg-gray-50'}`}>
-      {/* Header */}
-      <header className={`border-b ${darkMode ? 'border-white/10 bg-black/20' : 'border-gray-200 bg-white'} sticky top-0 z-10 backdrop-blur-sm`}>
-        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
+    <div className="flex flex-col h-screen bg-bg-primary text-white selection:bg-primary-accent selection:text-black overflow-hidden tracking-tight">
+      <main className="flex-1 flex flex-col h-full overflow-hidden relative">
+        <header className="h-14 lg:h-16 border-b border-border flex items-center justify-between px-4 lg:px-8 bg-bg-secondary shrink-0 z-20">
+          <div className="flex items-center gap-3 lg:gap-4 overflow-hidden">
+            <button 
               onClick={() => navigate('/dashboard')}
-              aria-label="Back to dashboard"
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
+              className="p-2 hover:bg-white/5 rounded text-white/50 hover:text-white transition-colors"
             >
-              <ChevronLeft className="w-5 h-5" />
+              <ChevronLeft size={20} />
             </button>
-            
-            <div>
+            <div className="truncate">
               {canEdit ? (
                 <input
                   type="text"
                   value={workTitle}
                   onChange={(e) => setWorkTitle(e.target.value)}
-                  className={`text-lg font-semibold bg-transparent border-none focus:outline-none ${darkMode ? 'text-white' : 'text-gray-900'}`}
-                  placeholder="Work Title"
+                  className="bg-transparent border-none text-sm lg:text-lg font-bold tracking-tight text-white/90 truncate focus:outline-none w-full"
                 />
               ) : (
-                <h1 className={`text-lg font-semibold ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                  {workTitle}
-                </h1>
+                <h2 className="text-sm lg:text-lg font-bold tracking-tight text-white/90 truncate">
+                  {workTitle || "Untitled Song"}
+                </h2>
               )}
-              <p className={`text-xs ${darkMode ? 'text-white/40' : 'text-gray-500'}`}>
-                {isOwner ? 'You own this song' : 'View only - owned by ' + members.find(m => m.user_id === song.created_by)?.user_name}
-              </p>
+              <div className="flex items-center gap-1.5">
+                <div className={cn("w-1 h-1 rounded-full", saveStatus === 'SAVING...' ? "bg-yellow-500 animate-pulse" : saveStatus === 'ERROR' ? "bg-red-500" : "bg-primary-accent")}></div>
+                <span className="text-[8px] text-white/30 uppercase tracking-[0.2em] font-black">{saveStatus}</span>
+              </div>
             </div>
           </div>
-
-          <div className="flex items-center gap-2">
+          <div className="flex gap-2 shrink-0">
             {canEdit && (
               <>
-                <button
-                  onClick={saveSong}
-                  disabled={saving}
-                  className="flex items-center gap-2 px-4 py-2 bg-primary-accent text-black rounded-lg font-medium hover:bg-primary-accent/90 transition-colors disabled:opacity-50"
-                >
-                  <Save className="w-4 h-4" />
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={notifyBandMembers}
-                  disabled={notifying || notified}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors disabled:opacity-50 ${
-                    notified 
-                      ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-                      : darkMode 
-                        ? 'bg-white/10 text-white hover:bg-white/20 border border-white/10' 
-                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200'
-                  }`}
-                  title="Notify band members about this song"
-                >
-                  {notified ? <Check className="w-4 h-4" /> : <Share2 className="w-4 h-4" />}
+                <Button variant="outline" icon={Save} onClick={saveSong} className="hidden lg:flex" disabled={saving}>Save</Button>
+                <IconButton icon={Save} onClick={saveSong} className="lg:hidden" title="Save" />
+                <Button variant="primary" icon={notified ? Check : Share2} onClick={notifyBandMembers} disabled={notifying || notified}>
                   {notified ? 'Notified' : notifying ? 'Notifying...' : 'Share'}
-                </button>
+                </Button>
               </>
             )}
-
-            <button
-              onClick={() => setDarkMode(!darkMode)}
-              aria-label={darkMode ? "Switch to light mode" : "Switch to dark mode"}
-              className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}
-            >
-              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-
-            <div className="relative group">
-              <button aria-label="More options" className={`p-2 rounded-lg transition-colors ${darkMode ? 'hover:bg-white/10 text-white/60' : 'hover:bg-gray-100 text-gray-600'}`}>
-                <MoreVertical className="w-5 h-5" />
-              </button>
-              
-              <div className={`absolute right-0 top-full mt-2 w-48 ${darkMode ? 'bg-bg-secondary border-white/10' : 'bg-white border-gray-200'} border rounded-xl shadow-xl overflow-hidden opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all`}>
-                <button
-                  onClick={handleSignOut}
-                  className={`w-full flex items-center gap-2 px-4 py-3 text-sm ${darkMode ? 'text-red-400 hover:bg-red-500/10' : 'text-red-600 hover:bg-red-50'} transition-colors`}
-                >
-                  <LogOut className="w-4 h-4" />
-                  Sign Out
-                </button>
-              </div>
-            </div>
           </div>
-        </div>
-      </header>
+        </header>
+        
+        <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-px bg-border overflow-hidden relative">
+          
+          <div className={cn("flex-1 overflow-hidden lg:hidden", mobileTab === 'lyrics' ? 'block' : 'hidden')}>
+            <LyricsEditor lyrics={lyrics} onChange={setLyrics} disabled={!canEdit} />
+          </div>
+          
+          <div className={cn("flex-1 overflow-y-auto lg:hidden bg-bg-primary", (mobileTab === 'details' || mobileTab === 'audio') ? 'block' : 'hidden')}>
+            <div className="p-6 space-y-8 min-h-full">
+              {mobileTab === 'details' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                   <span className="text-accent-label block mb-6">Workspace Details</span>
+                   <div className="space-y-6">
+                      <div className="grid grid-cols-2 gap-3">
+                        <Input label="Title" value={metadata.title} onChange={(v) => setMetadata({...metadata, title: v})} disabled={!canEdit} />
+                        <Input label="Artist" value={metadata.artist} onChange={(v) => setMetadata({...metadata, artist: v})} disabled={!canEdit} />
+                        <Input label="Tempo" value={metadata.tempo} onChange={(v) => setMetadata({...metadata, tempo: v})} disabled={!canEdit} />
+                        <Input label="Key" value={metadata.key} onChange={(v) => setMetadata({...metadata, key: v})} disabled={!canEdit} />
+                      </div>
+                      <Input label="Genre" value={metadata.genre} onChange={(v) => setMetadata({...metadata, genre: v})} disabled={!canEdit} />
+                      {canEdit && (
+                        <div className="pt-4 border-t border-white/5">
+                           <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Project Notes</label>
+                           <textarea 
+                              className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/70 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                              value={notes}
+                              onChange={(e) => setNotes(e.target.value)}
+                              disabled={!canEdit}
+                            />
+                        </div>
+                      )}
+                      
+                      {!isOwner && (
+                        <div className="pt-4 border-t border-white/5">
+                           <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Leave Feedback</label>
+                           <form onSubmit={submitFeedback} className="flex flex-col gap-2">
+                             <textarea 
+                                className="w-full h-24 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/70 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                                value={newFeedback}
+                                onChange={(e) => setNewFeedback(e.target.value)}
+                              />
+                              <Button variant="primary" onClick={submitFeedback} disabled={!newFeedback.trim() || submittingFeedback} icon={Send}>Send Feedback</Button>
+                           </form>
+                        </div>
+                      )}
 
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-6">
-        <div className="grid lg:grid-cols-3 gap-6">
-          {/* Left Column - Lyrics & Notes */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Metadata */}
-            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-              <h3 className={`text-xs font-medium uppercase tracking-wider mb-3 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                Song Details
-              </h3>
-              <div className="grid grid-cols-2 gap-4">
-                {['title', 'artist', 'key', 'tempo', 'genre'].map((field) => (
-                  <div key={field}>
-                    <label className={`text-xs ${darkMode ? 'text-white/40' : 'text-gray-500'} capitalize`}>
-                      {field}
-                    </label>
-                    {canEdit ? (
-                      <input
-                        type="text"
-                        value={metadata[field as keyof typeof metadata]}
-                        onChange={(e) => setMetadata(prev => ({ ...prev, [field]: e.target.value }))}
-                        className={`w-full px-3 py-2 rounded-lg border text-sm ${darkMode ? 'bg-black/30 border-white/10 text-white' : 'bg-gray-50 border-gray-200 text-gray-900'}`}
-                        placeholder={`Enter ${field}`}
-                      />
-                    ) : (
-                      <p className={`text-sm ${darkMode ? 'text-white/70' : 'text-gray-700'}`}>
-                        {metadata[field as keyof typeof metadata] || <span className="italic opacity-50">Not set</span>}
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+                      {feedback.length > 0 && (
+                        <div className="pt-4 border-t border-white/5">
+                          <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Feedback</label>
+                          <div className="space-y-3">
+                            {feedback.map(item => (
+                              <div key={item.id} className="p-3 bg-bg-tertiary rounded-xl border border-white/5">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[10px] font-bold text-primary-accent">{item.user_name}</span>
+                                  <span className="text-[8px] text-white/30">{new Date(item.created_at).toLocaleDateString()}</span>
+                                </div>
+                                <p className="text-xs text-white/70">{item.feedback}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                   </div>
+                </div>
+              )}
+              {mobileTab === 'audio' && (
+                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                   <span className="text-accent-label block mb-6">Audio Attachments</span>
+                   {canEdit && (
+                     <label className="block bg-bg-tertiary border border-dashed border-white/10 p-6 text-center rounded-xl cursor-pointer transition-all duration-300 ease-in-out hover:bg-bg-quaternary hover:shadow-md hover:border-white/20">
+                        <input type="file" multiple accept="audio/*" className="hidden" onChange={handleAudioUpload} />
+                        <Plus size={24} className="mx-auto text-primary-accent mb-2" />
+                        <p className="text-[9px] text-white/40 uppercase tracking-widest font-black">Upload Recordings</p>
+                     </label>
+                   )}
+                   
+                   {uploadingFiles.length > 0 && (
+                      <div className="mt-4 space-y-2">
+                         {uploadingFiles.map(f => (
+                           <div key={f.name} className="bg-bg-tertiary p-2 rounded border border-primary-accent/10">
+                             <div className="flex justify-between text-[8px] uppercase font-black tracking-widest mb-1 text-primary-accent">
+                               <span className="truncate w-3/4">{f.name}</span>
+                               <span>{f.progress}%</span>
+                             </div>
+                             <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                               <div className="h-full bg-primary-accent transition-all duration-300" style={{ width: `${f.progress}%` }} />
+                             </div>
+                           </div>
+                         ))}
+                      </div>
+                   )}
 
-            {/* Lyrics */}
-            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-              <h3 className={`text-xs font-medium uppercase tracking-wider mb-3 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                Lyrics
-              </h3>
-              {canEdit ? (
-                <textarea
-                  value={lyrics}
-                  onChange={(e) => setLyrics(e.target.value)}
-                  className={`w-full h-96 px-4 py-3 rounded-lg border resize-none font-mono text-sm leading-relaxed ${darkMode ? 'bg-black/30 border-white/10 text-white placeholder:text-white/20' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'}`}
-                  placeholder="Write your lyrics here..."
-                />
-              ) : (
-                <div className={`whitespace-pre-wrap font-mono text-sm leading-relaxed min-h-[200px] ${darkMode ? 'text-white/70' : 'text-gray-700'}`}>
-                  {lyrics || <span className="italic opacity-50">No lyrics yet</span>}
+                   <div className="mt-8 flex flex-col gap-3">
+                      {audioFiles.map(file => (
+                        <AudioPlayer 
+                          key={file.id} 
+                          file={file} 
+                          onRename={canEdit ? renameAudioFile : undefined}
+                          onDelete={canEdit && file.uploaded_by === user?.id ? (id) => {
+                          setConfirmState({
+                            isOpen: true,
+                            title: "Delete Recording",
+                            message: "Permanently remove this audio attachment?",
+                            onConfirm: async () => {
+                              await deleteAudioFile(id);
+                              setConfirmState(prev => ({ ...prev, isOpen: false }));
+                            }
+                          });
+                        } : undefined} />
+                      ))}
+                      {audioFiles.length === 0 && !uploadingFiles.length && (
+                        <p className="text-center py-12 text-[10px] text-white/10 uppercase tracking-widest italic">No audio yet</p>
+                      )}
+                   </div>
                 </div>
               )}
             </div>
-
-            {/* Project Notes (Owner only) */}
-            {canEdit && (
-              <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-                <h3 className={`text-xs font-medium uppercase tracking-wider mb-3 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Project Notes
-                </h3>
-                <textarea
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className={`w-full h-32 px-4 py-3 rounded-lg border resize-none text-sm ${darkMode ? 'bg-black/30 border-white/10 text-white placeholder:text-white/20' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'}`}
-                  placeholder="Private notes about this song..."
-                />
-              </div>
-            )}
           </div>
 
-          {/* Right Column - Audio & Feedback */}
-          <div className="space-y-6">
-            {/* Audio Files */}
-            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className={`text-xs font-medium uppercase tracking-wider ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Audio Files ({audioFiles.length})
-                </h3>
+          <section className="hidden lg:flex lg:col-span-7 bg-bg-primary flex-col h-full border-r border-border">
+            <LyricsEditor lyrics={lyrics} onChange={setLyrics} disabled={!canEdit} />
+          </section>
+
+          <section className="hidden lg:flex lg:col-span-5 flex-col bg-bg-primary overflow-y-auto">
+            <div className="p-8 space-y-10">
+              <div>
+                <span className="text-accent-label block mb-6">Metadata</span>
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Title" value={metadata.title} onChange={(v) => setMetadata({...metadata, title: v})} disabled={!canEdit} />
+                  <Input label="Artist" value={metadata.artist} onChange={(v) => setMetadata({...metadata, artist: v})} disabled={!canEdit} />
+                  <Input label="Tempo" value={metadata.tempo} onChange={(v) => setMetadata({...metadata, tempo: v})} disabled={!canEdit} />
+                  <Input label="Key" value={metadata.key} onChange={(v) => setMetadata({...metadata, key: v})} disabled={!canEdit} />
+                  <div className="col-span-2">
+                     <Input label="Genre" value={metadata.genre} onChange={(v) => setMetadata({...metadata, genre: v})} disabled={!canEdit} />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-accent-label block mb-6">Recordings</span>
                 {canEdit && (
-                  <label className="flex items-center gap-1 px-3 py-1.5 bg-primary-accent text-black rounded-lg text-xs font-medium cursor-pointer hover:bg-primary-accent/90 transition-colors">
-                    <Upload className="w-3 h-3" />
-                    Upload
-                    <input
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleAudioUpload}
-                      className="hidden"
-                    />
+                  <label className="bg-bg-tertiary border border-dashed border-tertiary-accent/20 p-8 flex flex-col items-center justify-center cursor-pointer hover:bg-bg-quaternary transition-all duration-300 ease-in-out group rounded-xl mb-4 hover:shadow-md hover:border-tertiary-accent/40">
+                    <input type="file" multiple accept="audio/*" className="hidden" onChange={handleAudioUpload} />
+                    <p className="text-[10px] text-tertiary-accent font-black group-hover:brightness-125 uppercase tracking-[0.2em] flex items-center gap-2">
+                      <Plus size={14} strokeWidth={3} /> Bulk Upload
+                    </p>
                   </label>
                 )}
-              </div>
 
-              <div className="space-y-2">
-                {audioFiles.length === 0 ? (
-                  <p className={`text-sm text-center py-4 ${darkMode ? 'text-white/30' : 'text-gray-400'}`}>
-                    No audio files yet
-                  </p>
-                ) : (
-                  audioFiles.map((file) => {
-                    const uploader = members.find(m => m.user_id === file.uploaded_by);
-                    const isUploader = file.uploaded_by === user?.id;
-                    
-                    return (
-                      <div
-                        key={file.id}
-                        className={`flex items-center gap-3 p-3 rounded-lg ${darkMode ? 'bg-black/30' : 'bg-gray-50'}`}
-                      >
-                        <button
-                          onClick={() => playAudio(file)}
-                          aria-label={playingId === file.id ? "Pause" : "Play"}
-                          className={`p-2 rounded-lg ${playingId === file.id ? 'bg-primary-accent text-black' : darkMode ? 'bg-white/10 text-white/60' : 'bg-gray-200 text-gray-600'}`}
-                        >
-                          {playingId === file.id ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-                        </button>
-                        
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                            {file.name}
-                          </p>
-                          <p className={`text-xs ${darkMode ? 'text-white/40' : 'text-gray-500'}`}>
-                            {uploader?.user_name || 'Unknown'} • {(file.size / 1024 / 1024).toFixed(1)} MB
-                          </p>
-                        </div>
-
-                        {canEdit && isUploader && (
-                          <button
-                            onClick={() => deleteAudioFile(file.id)}
-                            aria-label="Delete audio file"
-                            className="p-1.5 text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                {uploadingFiles.length > 0 && (
+                  <div className="space-y-3 mb-6 animate-pulse">
+                    {uploadingFiles.map(f => (
+                      <div key={f.name} className="text-[8px] uppercase tracking-widest font-black text-primary-accent flex items-center gap-2">
+                        <div className="w-1 h-1 bg-primary-accent rounded-full animate-ping"></div>
+                        Processing {f.name}... {f.progress}%
                       </div>
-                    );
-                  })
+                    ))}
+                  </div>
                 )}
-              </div>
-            </div>
-
-            {/* Feedback & Suggestions (Non-owners only) */}
-            {!isOwner && (
-              <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-                <h3 className={`text-xs font-medium uppercase tracking-wider mb-4 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Feedback & Suggestions
-                </h3>
-
-                {/* Submit Feedback */}
-                <form onSubmit={submitFeedback} className="mb-4">
-                  <textarea
-                    value={newFeedback}
-                    onChange={(e) => setNewFeedback(e.target.value)}
-                    className={`w-full h-24 px-3 py-2 rounded-lg border resize-none text-sm mb-2 ${darkMode ? 'bg-black/30 border-white/10 text-white placeholder:text-white/20' : 'bg-gray-50 border-gray-200 text-gray-900 placeholder:text-gray-400'}`}
-                    placeholder="Share your thoughts on this song..."
-                  />
-                  <button
-                    type="submit"
-                    disabled={!newFeedback.trim() || submittingFeedback}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary-accent text-black rounded-lg text-sm font-medium hover:bg-primary-accent/90 transition-colors disabled:opacity-50"
-                  >
-                    <Send className="w-4 h-4" />
-                    {submittingFeedback ? 'Sending...' : 'Send Feedback'}
-                  </button>
-                </form>
-
-                {/* Feedback List */}
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {feedback.length === 0 ? (
-                    <p className={`text-sm text-center py-4 ${darkMode ? 'text-white/30' : 'text-gray-400'}`}>
-                      No feedback yet
-                    </p>
-                  ) : (
-                    feedback.map((item) => (
-                      <div
-                        key={item.id}
-                        className={`p-3 rounded-lg ${darkMode ? 'bg-black/20' : 'bg-gray-50'}`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className={`text-xs font-medium ${darkMode ? 'text-primary-accent' : 'text-green-600'}`}>
-                            {item.user_name}
-                          </span>
-                          <span className={`text-xs ${darkMode ? 'text-white/30' : 'text-gray-400'}`}>
-                            {new Date(item.created_at).toLocaleDateString()}
-                          </span>
-                        </div>
-                        <p className={`text-sm ${darkMode ? 'text-white/70' : 'text-gray-700'}`}>
-                          {item.feedback}
-                        </p>
-                      </div>
-                    ))
+                
+                <div className="flex flex-col gap-3">
+                  {audioFiles.map(file => (
+                    <AudioPlayer 
+                      key={file.id} 
+                      file={file} 
+                      onRename={canEdit ? renameAudioFile : undefined}
+                      onDelete={canEdit && file.uploaded_by === user?.id ? (id) => {
+                        setConfirmState({
+                        isOpen: true,
+                        title: "Delete Attachment",
+                        message: "Are you sure you want to delete this recording?",
+                        onConfirm: async () => {
+                          await deleteAudioFile(id);
+                          setConfirmState(prev => ({ ...prev, isOpen: false }));
+                        }
+                      });
+                    } : undefined} />
+                  ))}
+                  {audioFiles.length === 0 && !uploadingFiles.length && (
+                    <p className="text-center py-12 text-[10px] text-white/10 uppercase tracking-widest italic">No audio yet</p>
                   )}
                 </div>
               </div>
-            )}
 
-            {/* Owner sees feedback received */}
-            {isOwner && feedback.length > 0 && (
-              <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-                <h3 className={`text-xs font-medium uppercase tracking-wider mb-4 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                  Feedback Received ({feedback.length})
-                </h3>
-
-                <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {feedback.map((item) => (
-                    <div
-                      key={item.id}
-                      className={`p-3 rounded-lg ${darkMode ? 'bg-black/20' : 'bg-gray-50'}`}
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className={`text-xs font-medium ${darkMode ? 'text-primary-accent' : 'text-green-600'}`}>
-                          {item.user_name}
-                        </span>
-                        <span className={`text-xs ${darkMode ? 'text-white/30' : 'text-gray-400'}`}>
-                          {new Date(item.created_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                      <p className={`text-sm ${darkMode ? 'text-white/70' : 'text-gray-700'}`}>
-                        {item.feedback}
-                      </p>
-                    </div>
-                  ))}
+              {canEdit && (
+                <div>
+                  <span className="text-accent-label block mb-6">Notes</span>
+                  <textarea 
+                    className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/60 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 leading-relaxed placeholder:text-white/5 font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                    placeholder="Technical notes, inspiration, setup..."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    disabled={!canEdit}
+                  />
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Band Members */}
-            <div className={`p-4 rounded-xl border ${darkMode ? 'bg-white/5 border-white/10' : 'bg-white border-gray-200'}`}>
-              <h3 className={`text-xs font-medium uppercase tracking-wider mb-4 ${darkMode ? 'text-white/50' : 'text-gray-500'}`}>
-                Band Members
-              </h3>
-              <div className="space-y-2">
-                {members.map((member) => (
-                  <div key={member.id} className="flex items-center gap-3">
-                    <img
-                      src={member.avatar_url || `https://ui-avatars.com/api/?name=${member.user_name || 'U'}&background=00ff00&color=000&size=32`}
-                      alt={member.user_name || 'Member'}
-                      className="w-8 h-8 rounded-full"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm truncate ${darkMode ? 'text-white' : 'text-gray-900'}`}>
-                        {member.user_name || member.user_email}
-                      </p>
-                    </div>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      member.role === 'admin' 
-                        ? 'bg-primary-accent/20 text-primary-accent' 
-                        : darkMode ? 'bg-white/10 text-white/50' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {member.role}
-                    </span>
+              {!isOwner && (
+                <div>
+                   <span className="text-accent-label block mb-6">Leave Feedback</span>
+                   <form onSubmit={submitFeedback} className="flex flex-col gap-3">
+                     <textarea 
+                        className="w-full h-32 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/60 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner"
+                        value={newFeedback}
+                        onChange={(e) => setNewFeedback(e.target.value)}
+                        placeholder="Share your thoughts on this song..."
+                      />
+                      <Button variant="primary" onClick={submitFeedback} disabled={!newFeedback.trim() || submittingFeedback} icon={Send} className="self-end">Send Feedback</Button>
+                   </form>
+                </div>
+              )}
+
+              {feedback.length > 0 && (
+                <div>
+                  <span className="text-accent-label block mb-6">Feedback</span>
+                  <div className="space-y-4">
+                    {feedback.map(item => (
+                      <div key={item.id} className="p-4 bg-bg-tertiary rounded-xl border border-white/5 hover:border-white/10 transition-colors">
+                        <div className="flex justify-between items-center mb-2">
+                          <span className="text-[11px] font-bold text-primary-accent">{item.user_name}</span>
+                          <span className="text-[9px] text-white/30">{new Date(item.created_at).toLocaleDateString()}</span>
+                        </div>
+                        <p className="text-sm text-white/80 leading-relaxed">{item.feedback}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
             </div>
-          </div>
+          </section>
         </div>
+
+        <nav className="lg:hidden h-16 border-t border-border bg-bg-secondary flex items-center justify-around px-4 shrink-0 z-20">
+           <button 
+            onClick={() => setMobileTab('lyrics')}
+            className={cn("flex flex-col items-center gap-1 transition-all duration-300 ease-in-out", mobileTab === 'lyrics' ? 'text-primary-accent scale-110 drop-shadow-md' : 'text-white/20 hover:text-white/50')}
+           >
+              <FileText size={20} />
+              <span className="text-[8px] font-black uppercase tracking-widest">Lyrics</span>
+           </button>
+           <button 
+            onClick={() => setMobileTab('audio')}
+            className={cn("flex flex-col items-center gap-1 transition-all duration-300 ease-in-out", mobileTab === 'audio' ? 'text-tertiary-accent scale-110 drop-shadow-md' : 'text-white/20 hover:text-white/50')}
+           >
+              <Music size={20} />
+              <span className="text-[8px] font-black uppercase tracking-widest">Audio</span>
+           </button>
+           <button 
+            onClick={() => setMobileTab('details')}
+            className={cn("flex flex-col items-center gap-1 transition-all duration-300 ease-in-out", mobileTab === 'details' ? 'text-secondary-text scale-110 drop-shadow-md' : 'text-white/20 hover:text-white/50')}
+           >
+              <Info size={20} />
+              <span className="text-[8px] font-black uppercase tracking-widest">Details</span>
+           </button>
+        </nav>
       </main>
+
+      <ConfirmModal 
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

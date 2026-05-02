@@ -1,13 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Music, Users, Settings, LogOut, ChevronRight, MoreVertical } from 'lucide-react';
+import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical } from 'lucide-react';
+import { Button, IconButton, ConfirmModal, useSpeechRecognition } from '../components/ui';
+import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
 type Band = Database['public']['Tables']['hub_bands']['Row'];
 type Idea = Database['public']['Tables']['hub_new_ideas']['Row'];
-type BandMember = Database['public']['Tables']['hub_band_members']['Row'];
 
 export function DashboardPage() {
   const { user, signOut } = useAuth();
@@ -16,18 +17,33 @@ export function DashboardPage() {
   const [bands, setBands] = useState<Band[]>([]);
   const [currentBand, setCurrentBand] = useState<Band | null>(null);
   const [ideas, setIdeas] = useState<Idea[]>([]);
-  const [members, setMembers] = useState<BandMember[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showNewIdeaModal, setShowNewIdeaModal] = useState(false);
-  const [newIdeaTitle, setNewIdeaTitle] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'updatedAt' | 'createdAt' | 'title'>('updatedAt');
+  const [sortDesc, setSortDesc] = useState(true);
   const [showBandMenu, setShowBandMenu] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
+  
+  const { isListening, startListening, stopListening } = useSpeechRecognition();
+  
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    onConfirm: () => {},
+  });
 
-  // Fetch user's bands and select first one
+  useEffect(() => {
+    document.documentElement.classList.remove('light-mode');
+  }, []);
+
   useEffect(() => {
     if (!user) return;
-
     const fetchBands = async () => {
       const { data: memberBands } = await supabase
         .from('hub_band_members')
@@ -53,15 +69,9 @@ export function DashboardPage() {
     fetchBands();
   }, [user]);
 
-  // Fetch ideas and members when band changes
   useEffect(() => {
     if (!currentBand || !user) return;
-
     const fetchBandData = async () => {
-      // Check if current user is owner
-      setIsOwner(currentBand.owner_id === user.id);
-
-      // Fetch ideas
       const { data: ideasData } = await supabase
         .from('hub_new_ideas')
         .select('*')
@@ -71,45 +81,59 @@ export function DashboardPage() {
       if (ideasData) {
         setIdeas(ideasData);
       }
-
-      // Fetch members
-      const { data: membersData } = await supabase
-        .from('hub_band_members')
-        .select('*')
-        .eq('band_id', currentBand.id);
-
-      if (membersData) {
-        setMembers(membersData);
-      }
     };
 
     fetchBandData();
   }, [currentBand, user]);
 
-  const createIdea = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newIdeaTitle.trim() || !currentBand || !user) return;
+  const toggleTheme = () => {
+    const newTheme = theme === 'dark' ? 'light' : 'dark';
+    setTheme(newTheme);
+    document.documentElement.classList.toggle('light-mode', newTheme === 'light');
+  };
 
-    setCreating(true);
+  const createIdea = async () => {
+    if (!currentBand || !user) return;
     
     const { data, error } = await supabase
       .from('hub_new_ideas')
       .insert({
         band_id: currentBand.id,
         created_by: user.id,
-        title: newIdeaTitle.trim(),
+        title: 'New Idea',
       })
       .select()
       .single();
 
     if (!error && data) {
-      setIdeas(prev => [data, ...prev]);
-      setShowNewIdeaModal(false);
-      setNewIdeaTitle('');
       navigate(`/idea/${data.id}`);
     }
+  };
 
-    setCreating(false);
+  const handleDelete = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setConfirmState({
+      isOpen: true,
+      title: "Delete Workspace",
+      message: "Are you sure you want to permanently delete this idea and all associated recordings?",
+      onConfirm: async () => {
+        await supabase.from('hub_new_ideas').delete().eq('id', id);
+        setIdeas(prev => prev.filter(i => i.id !== id));
+        setConfirmState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
+  const handleEditTitle = async (id: string, currentTitle: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const newTitle = window.prompt("Edit song title:", currentTitle || 'Untitled');
+    if (newTitle !== null) {
+      const trimmed = newTitle.trim();
+      await supabase.from('hub_new_ideas').update({ title: trimmed || 'Untitled' }).eq('id', id);
+      setIdeas(prev => prev.map(i => i.id === id ? { ...i, title: trimmed || 'Untitled' } : i));
+    }
   };
 
   const handleSignOut = async () => {
@@ -117,70 +141,81 @@ export function DashboardPage() {
     navigate('/songhub/onboarding');
   };
 
-  const switchBand = (band: Band) => {
-    setCurrentBand(band);
-    setShowBandMenu(false);
-  };
-
-  const goToOnboarding = () => {
-    navigate('/songhub/onboarding');
-  };
+  const filteredAndSortedIdeas = useMemo(() => {
+    let result = [...ideas];
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(s => 
+        (s.title?.toLowerCase() || '').includes(q) ||
+        (s.artist?.toLowerCase() || '').includes(q)
+      );
+    }
+    
+    result.sort((a, b) => {
+      let cmp = 0;
+      if (sortBy === 'title') {
+        const titleA = a.title || 'Untitled';
+        const titleB = b.title || 'Untitled';
+        cmp = titleA.localeCompare(titleB);
+      } else if (sortBy === 'updatedAt') {
+        cmp = new Date(a.updated_at).getTime() - new Date(b.updated_at).getTime();
+      } else if (sortBy === 'createdAt') {
+        cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      }
+      return sortDesc ? -cmp : cmp;
+    });
+    return result;
+  }, [ideas, searchQuery, sortBy, sortDesc]);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-bg-primary flex items-center justify-center">
-        <div className="animate-pulse text-primary-accent">Loading...</div>
+        <div className="animate-pulse text-primary-accent text-[10px] uppercase tracking-widest">Loading...</div>
       </div>
     );
   }
 
   if (bands.length === 0) {
     return (
-      <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-6">
-        <div className="text-center space-y-6">
-          <Music className="w-16 h-16 text-primary-accent mx-auto" />
-          <h1 className="text-2xl font-bold text-white">No Bands Yet</h1>
-          <p className="text-white/50">Create or join a band to get started</p>
-          <button
-            onClick={goToOnboarding}
-            className="px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold"
-          >
-            Get Started
-          </button>
+      <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-16 h-16 bg-bg-tertiary border border-border rounded-2xl flex items-center justify-center mx-auto mb-6 text-white/5 rotate-12">
+          <Plus size={32} />
         </div>
+        <h3 className="text-xl font-bold tracking-tighter mb-2 uppercase opacity-40 text-white">No Bands</h3>
+        <p className="text-[9px] text-white/20 uppercase tracking-[0.3em] font-black mb-8 px-12">Create or join a band to get started</p>
+        <Button variant="primary" onClick={() => navigate('/songhub/onboarding')} className="mx-auto shadow-lg shadow-primary-accent/10 py-2 px-6">
+          Get Started
+        </Button>
       </div>
     );
   }
 
-
   return (
-    <div className="min-h-screen bg-bg-primary">
-      {/* Header */}
-      <header className="border-b border-white/10 bg-black/20 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-bold text-white">SongHub</h1>
-            
-            {/* Band Selector */}
-            <div className="relative">
+    <div className="min-h-screen flex flex-col bg-bg-primary text-white selection:bg-primary-accent selection:text-black tracking-tight">
+      <div className="w-full lg:max-w-4xl mx-auto flex flex-col h-full bg-bg-primary">
+        <div className="p-5 border-b border-border flex items-center justify-between bg-bg-secondary shrink-0 z-10 sticky top-0">
+          <div className="flex items-center gap-3">
+            <h1 className="text-primary-accent text-xl font-bold tracking-tighter uppercase">SONGHUB</h1>
+            <div className="relative ml-2">
               <button
                 onClick={() => setShowBandMenu(!showBandMenu)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-white/5 hover:bg-white/10 rounded-lg transition-colors"
+                className="flex items-center gap-1.5 px-2 py-1 bg-white/5 hover:bg-white/10 border border-white/5 rounded-lg transition-colors text-[10px] uppercase font-black tracking-widest text-white/70"
               >
-                <span className="text-sm text-white/80">{currentBand?.name}</span>
-                <MoreVertical className="w-4 h-4 text-white/50" />
+                <span>{currentBand?.name}</span>
+                <MoreVertical className="w-3 h-3 text-white/50" />
               </button>
 
               {showBandMenu && (
-                <div className="absolute top-full left-0 mt-2 w-56 bg-bg-secondary border border-white/10 rounded-xl shadow-xl overflow-hidden">
+                <div className="absolute top-full left-0 mt-2 w-56 bg-bg-secondary border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
                   <div className="p-2 space-y-1">
                     {bands.map(band => (
                       <button
                         key={band.id}
-                        onClick={() => switchBand(band)}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-sm transition-colors ${
+                        onClick={() => { setCurrentBand(band); setShowBandMenu(false); }}
+                        className={cn(
+                          "w-full flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs font-bold tracking-wider uppercase transition-colors",
                           band.id === currentBand?.id ? 'bg-primary-accent/20 text-primary-accent' : 'hover:bg-white/5 text-white/70'
-                        }`}
+                        )}
                       >
                         {band.name}
                         {band.id === currentBand?.id && <ChevronRight className="w-4 h-4" />}
@@ -189,17 +224,17 @@ export function DashboardPage() {
                   </div>
                   <div className="border-t border-white/10 p-2 space-y-1">
                     <button
-                      onClick={goToOnboarding}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-white/5 transition-colors"
+                      onClick={() => navigate('/songhub/onboarding')}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/70 hover:bg-white/5 transition-colors"
                     >
-                      <Plus className="w-4 h-4" />
+                      <Plus className="w-3 h-3" />
                       Create New Band
                     </button>
                     <button
                       onClick={handleSignOut}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-danger hover:bg-danger/10 transition-colors"
                     >
-                      <LogOut className="w-4 h-4" />
+                      <LogOut className="w-3 h-3" />
                       Sign Out
                     </button>
                   </div>
@@ -207,128 +242,98 @@ export function DashboardPage() {
               )}
             </div>
           </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleSignOut}
-              className="flex items-center gap-2 px-4 py-2 border border-white/10 text-white/50 rounded-xl hover:bg-white/5 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
+          <div className="flex gap-2 shrink-0">
+            <IconButton icon={theme === 'dark' ? Sun : Moon} onClick={toggleTheme} title="Toggle Theme" />
+            <IconButton icon={Plus} className="text-black bg-primary-accent hover:bg-primary-accent/90 rounded-xl p-1.5 shadow-[0_0_10px_rgba(0,255,0,0.2)]" onClick={createIdea} title="New Idea" />
           </div>
         </div>
-      </header>
 
-      {/* Main Content */}
-      <main className="max-w-6xl mx-auto px-4 py-8">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-lg font-semibold text-white">
-              Ideas
-            </h2>
-            <p className="text-sm text-white/40">
-              {ideas.length} idea{ideas.length !== 1 ? 's' : ''} in this band
-            </p>
+        <div className="p-4 border-b border-border bg-bg-primary shrink-0 z-10 w-full min-w-0 sticky top-[73px]">
+          <div className="bg-bg-tertiary border border-white/5 rounded-xl flex items-center shadow-inner focus-within:ring-2 focus-within:ring-primary-accent/30 focus-within:border-primary-accent transition-all duration-300 w-full">
+             <button 
+               onClick={() => isListening ? stopListening() : startListening((text) => setSearchQuery(text))}
+               className={cn("p-2 lg:p-3 transition-colors shrink-0", isListening ? "text-primary-accent" : "text-white/30 hover:text-white")}
+               title="Voice Search"
+             >
+               <Mic size={14} />
+             </button>
+             <input 
+               type="text"
+               placeholder="Search songs..."
+               value={searchQuery}
+               onChange={(e) => setSearchQuery(e.target.value)}
+               className="flex-1 w-0 min-w-0 bg-transparent py-2 px-1 text-xs text-white/90 outline-none placeholder:text-white/20"
+             />
+             <div className="flex items-center border-l border-white/5 shrink-0 px-1 relative">
+               <select 
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value as any)}
+                  className="bg-transparent pl-1 pr-4 lg:px-2 py-2 text-[10px] lg:text-xs text-white/60 outline-none cursor-pointer hover:text-white appearance-none"
+                  style={{ WebkitAppearance: 'none', appearance: 'none', background: 'transparent' }}
+               >
+                  <option value="updatedAt">Updated</option>
+                  <option value="createdAt">Created</option>
+                  <option value="title">A ➞ Z</option>
+               </select>
+               <ArrowUpDown size={10} className="absolute right-1 text-white/30 pointer-events-none" />
+             </div>
           </div>
-          <button
-            onClick={() => setShowNewIdeaModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary-accent text-black rounded-lg font-medium hover:bg-primary-accent/90 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Idea
-          </button>
         </div>
-
-        {ideas.length === 0 ? (
-          <div className="text-center py-16 bg-white/5 rounded-2xl border border-white/10 border-dashed">
-            <Music className="w-12 h-12 text-white/20 mx-auto mb-4" />
-            <p className="text-white/40 mb-4">No ideas yet</p>
-            <button
-              onClick={() => setShowNewIdeaModal(true)}
-              className="text-primary-accent hover:underline text-sm"
-            >
-              Create your first idea
-            </button>
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {ideas.map(idea => {
-              const isIdeaOwner = idea.created_by === user?.id;
-              
-              return (
-                <button
-                  key={idea.id}
-                  onClick={() => navigate(`/idea/${idea.id}`)}
-                  className="text-left p-4 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl transition-all group"
-                >
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-medium text-white group-hover:text-primary-accent transition-colors">
-                      {idea.title}
-                    </h3>
-                    <span className={`text-xs px-2 py-1 rounded-full ${
-                      isIdeaOwner ? 'bg-primary-accent/20 text-primary-accent' : 'bg-white/10 text-white/50'
-                    }`}>
-                      {isIdeaOwner ? 'Owner' : 'View Only'}
-                    </span>
+        
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+          {filteredAndSortedIdeas.length === 0 ? (
+            <div className="p-12 text-center">
+              <p className="text-[10px] text-white/20 uppercase tracking-widest mb-4">No results</p>
+              {!searchQuery && <Button variant="outline" onClick={createIdea} className="mx-auto">Create Idea</Button>}
+            </div>
+          ) : (
+            filteredAndSortedIdeas.map(idea => (
+              <div 
+                key={idea.id}
+                onClick={() => navigate(`/idea/${idea.id}`)}
+                className="p-4 cursor-pointer group relative transition-all duration-300 ease-in-out rounded-xl mx-2 mb-2 hover:bg-bg-tertiary/50 border border-transparent border-white/5 shadow-sm"
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="text-sm font-medium transition-colors text-white/90 group-hover:text-white">
+                      {idea.title || "Untitled"}
+                    </p>
+                    <p className="text-[9px] text-white/30 uppercase tracking-[0.1em] font-black mt-0.5">
+                      {idea.artist || "No Artist"} • {new Date(idea.updated_at).toLocaleDateString()}
+                    </p>
                   </div>
-                  
-                  <div className="flex items-center gap-4 text-xs text-white/40">
-                    <span>{idea.tempo || '-'} BPM</span>
-                    <span>{idea.key || '-'}</span>
-                    <span>{idea.lyrics ? 'Has lyrics' : 'No lyrics'}</span>
+                  <div className="flex items-center space-x-1.5 -mr-1">
+                    <button 
+                      type="button"
+                      onClick={(e) => handleEditTitle(idea.id, idea.title || '', e)}
+                      className="p-1.5 text-blue-500 hover:bg-blue-500/10 hover:shadow-[0_0_8px_rgba(59,130,246,0.5)] active:bg-blue-500/10 active:scale-95 rounded transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                      title="Edit Title"
+                    >
+                      <Edit3 size={13} />
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={(e) => handleDelete(idea.id, e)}
+                      className="p-1.5 text-red-500 hover:bg-red-500/10 hover:shadow-[0_0_8px_rgba(239,68,68,0.5)] active:bg-red-500/10 active:scale-95 rounded transition-all opacity-100 lg:opacity-0 lg:group-hover:opacity-100"
+                      title="Delete Workspace"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
-                  
-                  <p className="text-xs text-white/30 mt-3">
-                    Updated {new Date(idea.updated_at).toLocaleDateString()}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </main>
+                </div>
+              </div>
+            ))
+          )}
+        </nav>
+      </div>
 
-      {/* New Idea Modal */}
-      {showNewIdeaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-bg-secondary border border-white/10 w-full max-w-sm p-6 rounded-2xl">
-            <h3 className="text-lg font-semibold text-white mb-4">Create New Idea</h3>
-            <form onSubmit={createIdea} className="space-y-4">
-              <div>
-                <label className="text-xs font-medium text-white/70 uppercase tracking-wider mb-2 block">
-                  Title
-                </label>
-                <input
-                  type="text"
-                  value={newIdeaTitle}
-                  onChange={(e) => setNewIdeaTitle(e.target.value)}
-                  placeholder="Enter a title"
-                  className="w-full px-4 py-3 bg-black/30 border border-white/10 rounded-xl text-white placeholder:text-white/30 focus:outline-none focus:border-primary-accent/50"
-                  maxLength={100}
-                  autoFocus
-                />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowNewIdeaModal(false)}
-                  className="flex-1 px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-xl transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!newIdeaTitle.trim() || creating}
-                  className="flex-1 px-4 py-2 bg-primary-accent text-black rounded-xl font-medium hover:bg-primary-accent/90 transition-colors disabled:opacity-50"
-                >
-                  {creating ? 'Creating...' : 'Create'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ConfirmModal 
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onConfirm={confirmState.onConfirm}
+        onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
