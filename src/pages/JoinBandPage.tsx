@@ -33,7 +33,7 @@ export function JoinBandPage() {
           .from('hub_bands')
           .select('id, name')
           .eq('invite_code', code)
-          .single();
+          .maybeSingle();
 
         console.log('Band fetch result:', { data, error });
 
