@@ -62,18 +62,13 @@ export function JoinBandPage() {
     try {
       console.log('Joining band with ID:', band.id);
       
-      const { data, error } = await supabase
-        .from('hub_band_members')
-        .insert({
-          band_id: band.id,
-          user_id: user.id,
-        })
-        .select()
-        .single();
+      const { data, error } = await supabase.rpc('join_band_by_invite_code', {
+        p_invite_code: code
+      });
 
       console.log('Join band result:', { data, error });
 
-      if (error && error.code !== '23505') {
+      if (error) {
         throw error;
       }
 
