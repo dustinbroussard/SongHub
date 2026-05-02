@@ -4,6 +4,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Music, Users, ArrowRight, LogOut, Copy, Check } from 'lucide-react';
 
+function generateInviteCode(): string {
+  // Generate a 12-character random hex string for the invite code
+  return Array.from({ length: 12 }, () => 
+    Math.floor(Math.random() * 16).toString(16)
+  ).join('');
+}
+
 export function OnboardingPage() {
   const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -36,12 +43,15 @@ export function OnboardingPage() {
     setError('');
 
     try {
-      // Create band with owner_id (invite_code will be auto-generated)
+      // Generate invite code and create band
+      const inviteCode = generateInviteCode();
+      
       const { data: band, error: bandError } = await supabase
         .from('hub_bands')
         .insert({
           name: bandName.trim(),
           owner_id: user.id,
+          invite_code: inviteCode,
         })
         .select()
         .single();
