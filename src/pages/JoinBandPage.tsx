@@ -60,20 +60,27 @@ export function JoinBandPage() {
     setError('');
 
     try {
-      console.log('Joining band with invite code:', code);
-      // Call the Edge Function to join the band
-      const { data, error } = await supabase.functions.invoke('join-band', {
-        body: { invite_code: code }
-      });
+      console.log('Joining band with ID:', band.id);
+      
+      const { data, error } = await supabase
+        .from('hub_band_members')
+        .insert({
+          band_id: band.id,
+          user_id: user.id,
+        })
+        .select()
+        .single();
 
       console.log('Join band result:', { data, error });
 
-      if (error) throw error;
+      if (error && error.code !== '23505') {
+        throw error;
+      }
 
       setJoined(true);
       // Notify owner
       await notifyBandOwner({
-        bandId: data.band_id,
+        bandId: band.id,
         type: 'join',
         message: `${user?.user_metadata?.full_name || user?.email || 'Someone'} joined your band!`,
         fromUserId: user!.id,
