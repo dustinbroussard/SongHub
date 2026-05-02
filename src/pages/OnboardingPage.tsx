@@ -67,7 +67,7 @@ export function OnboardingPage() {
     }
   };
 
-  // Check if user is already in a band
+  // Check if user is already in a band (only for initial loading state)
   useEffect(() => {
     if (!user) {
       setCheckingBands(false);
@@ -76,25 +76,19 @@ export function OnboardingPage() {
 
     const checkBandMembership = async () => {
       setCheckingBands(true);
-      
-      const { data: memberBands, error } = await supabase
+      const { data: memberBands } = await supabase
         .from('hub_band_members')
         .select('band_id')
         .eq('user_id', user.id)
         .limit(1);
 
-      if (!error && memberBands && memberBands.length > 0) {
-        // Redirect to dashboard after a brief delay
-        setTimeout(() => {
-          navigate('/dashboard', { replace: true });
-        }, 500);
-      } else {
-        setCheckingBands(false);
-      }
+      // We no longer auto-redirect here so that users can use this page 
+      // to create additional bands via the "Create New Band" button.
+      setCheckingBands(false);
     };
 
     checkBandMembership();
-  }, [user, navigate]);
+  }, [user]);
 
   // Show loading spinner while checking auth or band membership
   if (authLoading || checkingBands) {
@@ -248,23 +242,32 @@ export function OnboardingPage() {
             <p className="text-xs text-red-400">{error}</p>
           )}
 
-          <button
-            type="submit"
-            disabled={!bandName.trim() || creating}
-            className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {creating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
-                Creating...
-              </>
-            ) : (
-              <>
-                <Users className="w-4 h-4" />
-                Create Band
-              </>
-            )}
-          </button>
+          <div className="flex flex-col gap-3">
+            <button
+              type="submit"
+              disabled={!bandName.trim() || creating}
+              className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-primary-accent text-black rounded-xl font-semibold hover:bg-primary-accent/90 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {creating ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Users className="w-4 h-4" />
+                  Create Band
+                </>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/dashboard')}
+              className="w-full py-3 text-xs text-white/40 hover:text-white/70 transition-colors uppercase font-black tracking-widest"
+            >
+              Back to Dashboard
+            </button>
+          </div>
         </form>
 
         <button

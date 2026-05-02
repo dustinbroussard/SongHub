@@ -27,6 +27,7 @@ function AppRoutes() {
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/songhub/onboarding" element={<OnboardingPage />} />
       <Route path="/join" element={<JoinBandPage />} />
+      <Route path="/join/:code" element={<JoinBandPage />} />
       <Route
         path="/dashboard"
         element={

@@ -2,8 +2,10 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ChevronLeft, Save, FileText, Music, Info, History as HistoryIcon, Plus } from 'lucide-react';
+import { ChevronLeft, Save, FileText, Music, Info, History as HistoryIcon, Plus, Download, FileJson, FileArchive, MessageSquare } from 'lucide-react';
 import { Button, IconButton, ConfirmModal, Input, AudioPlayer, LyricsEditor } from '../components/ui';
+import { exportIdeaZIP, exportSongAsJSON } from '../lib/export';
+import { notifyBandMembers } from '../lib/notifications';
 import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
@@ -23,6 +25,8 @@ export function IdeaWorkspacePage() {
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
   const [saveStatus, setSaveStatus] = useState('READY');
   const [mobileTab, setMobileTab] = useState<'lyrics' | 'details' | 'audio'>('lyrics');
   
@@ -33,6 +37,7 @@ export function IdeaWorkspacePage() {
   const [genre, setGenre] = useState('');
   const [artist, setArtist] = useState('');
   const [projectNotes, setProjectNotes] = useState('');
+  const [feedbackNotes, setFeedbackNotes] = useState('');
   
   const [uploadingFiles, setUploadingFiles] = useState<{name: string, progress: number}[]>([]);
   const [confirmState, setConfirmState] = useState<{
@@ -73,6 +78,7 @@ export function IdeaWorkspacePage() {
       setGenre(ideaData.genre || '');
       setArtist(ideaData.artist || '');
       setProjectNotes(ideaData.project_notes || '');
+      setFeedbackNotes((ideaData as any).feedback_notes || '');
 
       const { data: audioData } = await supabase
         .from('hub_new_idea_audio_versions')
@@ -100,27 +106,45 @@ export function IdeaWorkspacePage() {
   }, [ideaId, user, navigate]);
 
   const saveIdea = async () => {
-    if (!idea || !canEdit) return;
+    if (!idea) return;
 
     setSaving(true);
     setSaveStatus('SAVING...');
 
+    const payload: any = {
+      feedback_notes: feedbackNotes,
+    };
+
+    if (canEdit) {
+      payload.title = title;
+      payload.lyrics = lyrics;
+      payload.tempo = tempo ? parseInt(tempo) : null;
+      payload.key = key;
+      payload.genre = genre;
+      payload.artist = artist;
+      payload.project_notes = projectNotes;
+    }
+
     const { error } = await supabase
       .from('hub_new_ideas')
-      .update({
-        title,
-        lyrics,
-        tempo: tempo ? parseInt(tempo) : null,
-        key,
-        genre,
-        artist,
-        project_notes: projectNotes,
-      })
+      .update(payload)
       .eq('id', idea.id);
 
     if (!error) {
-      setIdea({ ...idea, title, lyrics, tempo: tempo ? parseInt(tempo) : null, key, genre, artist, project_notes: projectNotes });
+      setIdea({ ...idea, ...payload });
       setSaveStatus('SAVED');
+      
+      // Notify others/creator
+      await notifyBandMembers({
+        bandId: idea.band_id,
+        songId: idea.id,
+        type: 'edit',
+        message: `${user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member'} updated "${title}"`,
+        fromUserId: user!.id,
+        fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+        excludeSelf: true,
+      });
+
       setTimeout(() => setSaveStatus('READY'), 2000);
     } else {
       setSaveStatus('ERROR');
@@ -160,6 +184,18 @@ export function IdeaWorkspacePage() {
           .single();
 
         if (dbError) throw dbError;
+        
+        // Notify others
+        await notifyBandMembers({
+          bandId: idea.band_id,
+          songId: idea.id,
+          type: 'upload',
+          message: `${user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member'} uploaded a new recording to "${title}"`,
+          fromUserId: user!.id,
+          fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+          excludeSelf: true,
+        });
+
         setUploadingFiles(prev => prev.map(f => f.name === file.name ? { ...f, progress: 100 } : f));
 
         const { data: urlData } = await supabase
@@ -232,14 +268,57 @@ export function IdeaWorkspacePage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
-            {canEdit && (
-              <>
-                <Button variant="outline" icon={Save} onClick={saveIdea} className="hidden lg:flex" disabled={saving}>Save</Button>
-                <IconButton icon={Save} onClick={saveIdea} className="lg:hidden" title="Save" />
-              </>
-            )}
+            <div className="relative">
+              <IconButton 
+                icon={Download} 
+                onClick={() => setShowExportOptions(!showExportOptions)} 
+                title="Export" 
+              />
+              {showExportOptions && (
+                <div className="absolute top-full right-0 mt-2 w-48 bg-bg-secondary border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                  <div className="p-1">
+                    <button
+                      onClick={async () => {
+                        if (!idea) return;
+                        setExporting(true);
+                        setShowExportOptions(false);
+                        await exportIdeaZIP(idea, audioFiles);
+                        setExporting(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-xs font-bold tracking-tight text-white/70 hover:bg-white/5 transition-colors"
+                    >
+                      <FileArchive size={14} className="text-primary-accent" />
+                      Full Project (ZIP)
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!idea) return;
+                        exportSongAsJSON(idea);
+                        setShowExportOptions(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-xs font-bold tracking-tight text-white/70 hover:bg-white/5 transition-colors"
+                    >
+                      <FileJson size={14} className="text-blue-400" />
+                      Metadata (JSON)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" icon={Save} onClick={saveIdea} className="hidden lg:flex" disabled={saving}>Save</Button>
+              <IconButton icon={Save} onClick={saveIdea} className="lg:hidden" title="Save" />
+            </div>
           </div>
         </header>
+
+        {exporting && (
+          <div className="bg-primary-accent/10 border-b border-primary-accent/20 py-2 px-6 animate-pulse shrink-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-primary-accent text-center">
+              Generating export bundle...
+            </p>
+          </div>
+        )}
         
         <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-px bg-border overflow-hidden relative">
           
@@ -260,17 +339,29 @@ export function IdeaWorkspacePage() {
                         <Input label="Key" value={key} onChange={setKey} disabled={!canEdit} />
                       </div>
                       <Input label="Genre" value={genre} onChange={setGenre} disabled={!canEdit} />
-                      <div className="pt-4 border-t border-white/5">
-                         <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Project Notes</label>
-                         <textarea 
-                            className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/70 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
-                            value={projectNotes}
-                            onChange={(e) => setProjectNotes(e.target.value)}
-                            disabled={!canEdit}
-                          />
-                      </div>
-                   </div>
-                </div>
+                       <div className="pt-4 border-t border-white/5">
+                          <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Project Notes (Creator Only)</label>
+                          <textarea 
+                             className="w-full h-32 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/50 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                             value={projectNotes}
+                             onChange={(e) => setProjectNotes(e.target.value)}
+                             disabled={!canEdit}
+                           />
+                       </div>
+                       <div className="pt-4 border-t border-white/5">
+                          <label className="text-[8px] uppercase tracking-[0.2em] font-black text-primary-accent mb-2 flex items-center gap-2">
+                            <MessageSquare size={10} />
+                            Feedback & Suggestions (Editable for all members)
+                          </label>
+                          <textarea 
+                             className="w-full h-48 bg-bg-tertiary border border-primary-accent/20 rounded-xl p-3 text-xs text-white/90 outline-none focus:ring-2 focus:ring-primary-accent/30 focus:border-primary-accent/50 resize-none font-mono transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,255,0,0.05)] placeholder:text-white/10"
+                             placeholder="Add your thoughts, arrangement ideas, or feedback here..."
+                             value={feedbackNotes}
+                             onChange={(e) => setFeedbackNotes(e.target.value)}
+                           />
+                       </div>
+                    </div>
+                 </div>
               )}
               {mobileTab === 'audio' && (
                 <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
@@ -390,13 +481,26 @@ export function IdeaWorkspacePage() {
               </div>
 
               <div>
-                <span className="text-accent-label block mb-6">Notes</span>
+                <span className="text-accent-label block mb-6">Project Notes</span>
                 <textarea 
-                  className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/60 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 leading-relaxed placeholder:text-white/5 font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                  className="w-full h-32 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/40 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 leading-relaxed placeholder:text-white/5 font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
                   placeholder="Technical notes, inspiration, setup..."
                   value={projectNotes}
                   onChange={(e) => setProjectNotes(e.target.value)}
                   disabled={!canEdit}
+                />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-6">
+                  <span className="text-accent-label text-primary-accent">Feedback & Suggestions</span>
+                  <div className="px-2 py-0.5 bg-primary-accent/10 border border-primary-accent/20 rounded text-[8px] font-black uppercase tracking-widest text-primary-accent">Editable for all</div>
+                </div>
+                <textarea 
+                  className="w-full h-48 bg-bg-tertiary border border-primary-accent/20 rounded-xl p-5 text-sm text-white/90 outline-none focus:ring-2 focus:ring-primary-accent/30 focus:border-primary-accent/50 leading-relaxed placeholder:text-white/10 font-mono transition-all duration-300 ease-in-out shadow-[0_0_20px_rgba(0,255,0,0.05)]"
+                  placeholder="Share your feedback, suggest changes, or discuss the arrangement..."
+                  value={feedbackNotes}
+                  onChange={(e) => setFeedbackNotes(e.target.value)}
                 />
               </div>
             </div>

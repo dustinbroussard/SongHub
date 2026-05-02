@@ -2,8 +2,10 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical } from 'lucide-react';
+import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical, UserPlus, Copy, Check, X, Download } from 'lucide-react';
 import { Button, IconButton, ConfirmModal, useSpeechRecognition } from '../components/ui';
+import { exportBandLibraryZIP } from '../lib/export';
+import { notifyBandMembers } from '../lib/notifications';
 import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
@@ -23,6 +25,10 @@ export function DashboardPage() {
   const [sortBy, setSortBy] = useState<'updatedAt' | 'createdAt' | 'title'>('updatedAt');
   const [sortDesc, setSortDesc] = useState(true);
   const [showBandMenu, setShowBandMenu] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportProgress, setExportProgress] = useState('');
+  const [copied, setCopied] = useState(false);
   
   const { isListening, startListening, stopListening } = useSpeechRecognition();
   
@@ -37,6 +43,16 @@ export function DashboardPage() {
     message: "",
     onConfirm: () => {},
   });
+
+  const isOwner = currentBand?.owner_id === user?.id;
+
+  const handleCopyInvite = async () => {
+    if (!currentBand) return;
+    const url = `${window.location.origin}/join?code=${currentBand.invite_code}`;
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   useEffect(() => {
     document.documentElement.classList.remove('light-mode');
@@ -60,7 +76,10 @@ export function DashboardPage() {
 
         if (bandsData && bandsData.length > 0) {
           setBands(bandsData);
-          setCurrentBand(bandsData[0]);
+          
+          const lastBandId = localStorage.getItem('songhub_last_band_id');
+          const lastBand = bandsData.find(b => b.id === lastBandId);
+          setCurrentBand(lastBand || bandsData[0]);
         }
       }
       setLoading(false);
@@ -68,6 +87,12 @@ export function DashboardPage() {
 
     fetchBands();
   }, [user]);
+
+  useEffect(() => {
+    if (currentBand) {
+      localStorage.setItem('songhub_last_band_id', currentBand.id);
+    }
+  }, [currentBand]);
 
   useEffect(() => {
     if (!currentBand || !user) return;
@@ -106,6 +131,15 @@ export function DashboardPage() {
       .single();
 
     if (!error && data) {
+      await notifyBandMembers({
+        bandId: currentBand.id,
+        songId: data.id,
+        type: 'create',
+        message: `${user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'Someone'} created a new idea: "${data.title}"`,
+        fromUserId: user.id,
+        fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+        excludeSelf: true,
+      });
       navigate(`/idea/${data.id}`);
     }
   };
@@ -193,7 +227,7 @@ export function DashboardPage() {
   return (
     <div className="min-h-screen flex flex-col bg-bg-primary text-white selection:bg-primary-accent selection:text-black tracking-tight">
       <div className="w-full lg:max-w-4xl mx-auto flex flex-col h-full bg-bg-primary">
-        <div className="p-5 border-b border-border flex items-center justify-between bg-bg-secondary shrink-0 z-10 sticky top-0">
+        <div className="p-5 border-b border-border flex items-center justify-between bg-bg-secondary shrink-0 z-30 sticky top-0 shadow-lg">
           <div className="flex items-center gap-3">
             <h1 className="text-primary-accent text-xl font-bold tracking-tighter uppercase">SONGHUB</h1>
             <div className="relative ml-2">
@@ -223,6 +257,30 @@ export function DashboardPage() {
                     ))}
                   </div>
                   <div className="border-t border-white/10 p-2 space-y-1">
+                    {isOwner && (
+                      <button
+                        onClick={() => { setShowInviteModal(true); setShowBandMenu(false); }}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-primary-accent hover:bg-primary-accent/10 transition-colors"
+                      >
+                        <UserPlus className="w-3 h-3" />
+                        Invite Members
+                      </button>
+                    )}
+                    <button
+                      onClick={async () => {
+                        if (!currentBand) return;
+                        setExporting(true);
+                        setShowBandMenu(false);
+                        await exportBandLibraryZIP(currentBand.id, currentBand.name, (msg) => setExportProgress(msg));
+                        setExporting(false);
+                        setExportProgress('');
+                      }}
+                      disabled={exporting}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/70 hover:bg-white/5 transition-colors"
+                    >
+                      <Download className="w-3 h-3" />
+                      {exporting ? 'Exporting...' : 'Export Library (ZIP)'}
+                    </button>
                     <button
                       onClick={() => navigate('/songhub/onboarding')}
                       className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/70 hover:bg-white/5 transition-colors"
@@ -248,7 +306,15 @@ export function DashboardPage() {
           </div>
         </div>
 
-        <div className="p-4 border-b border-border bg-bg-primary shrink-0 z-10 w-full min-w-0 sticky top-[73px]">
+        <div className="p-4 border-b border-border bg-bg-primary shrink-0 z-20 w-full min-w-0 sticky top-[73px]">
+          {exporting && (
+            <div className="mb-4 p-3 bg-primary-accent/10 border border-primary-accent/20 rounded-xl animate-pulse">
+              <p className="text-[10px] font-black uppercase tracking-widest text-primary-accent flex items-center gap-2">
+                <Download size={12} className="animate-bounce" />
+                {exportProgress}
+              </p>
+            </div>
+          )}
           <div className="bg-bg-tertiary border border-white/5 rounded-xl flex items-center shadow-inner focus-within:ring-2 focus-within:ring-primary-accent/30 focus-within:border-primary-accent transition-all duration-300 w-full">
              <button 
                onClick={() => isListening ? stopListening() : startListening((text) => setSearchQuery(text))}
@@ -334,6 +400,43 @@ export function DashboardPage() {
         onConfirm={confirmState.onConfirm}
         onCancel={() => setConfirmState(prev => ({ ...prev, isOpen: false }))}
       />
+
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="bg-bg-secondary border border-white/10 w-full max-w-sm p-6 space-y-6 shadow-2xl rounded-2xl animate-in zoom-in-95 duration-300">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-sm font-bold uppercase tracking-widest text-primary-accent mb-2">Invite Link</h3>
+                <p className="text-[10px] text-white/50 leading-relaxed uppercase tracking-tight">Share this link with your bandmates to invite them to "{currentBand?.name}"</p>
+              </div>
+              <button onClick={() => setShowInviteModal(false)} className="text-white/30 hover:text-white transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="relative">
+                <input 
+                  readOnly 
+                  value={`${window.location.origin}/join?code=${currentBand?.invite_code}`}
+                  className="w-full bg-bg-tertiary border border-white/5 rounded-xl px-4 py-3 text-xs text-white/90 font-mono outline-none shadow-inner pr-12"
+                />
+                <button 
+                  onClick={handleCopyInvite}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 bg-primary-accent text-black rounded-lg hover:brightness-110 transition-all active:scale-95"
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                </button>
+              </div>
+              
+              <Button variant="outline" onClick={() => setShowInviteModal(false)} className="w-full py-3">
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

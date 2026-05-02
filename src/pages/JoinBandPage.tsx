@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Music, Users, ArrowRight, LogOut, AlertCircle } from 'lucide-react';
+import { notifyBandOwner } from '../lib/notifications';
+
 
 export function JoinBandPage() {
-  const { code } = useParams<{ code: string }>();
+  const { code: pathCode } = useParams<{ code: string }>();
+  const [searchParams] = useSearchParams();
+  const code = pathCode || searchParams.get('code');
   const { user, signInWithGoogle, signOut, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   
@@ -71,6 +75,15 @@ export function JoinBandPage() {
       if (error) throw error;
 
       setJoined(true);
+      // Notify owner
+      await notifyBandOwner({
+        bandId: data.band_id,
+        type: 'join',
+        message: `${user?.user_metadata?.full_name || user?.email || 'Someone'} joined your band!`,
+        fromUserId: user!.id,
+        fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+      });
+
       setTimeout(() => navigate('/dashboard'), 1500);
     } catch (err: any) {
       console.error('Join band error:', err);

@@ -2,8 +2,10 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { ChevronLeft, Save, FileText, Music, Info, Share2, Send, Check, Plus } from 'lucide-react';
+import { ChevronLeft, Save, FileText, Music, Info, Share2, Send, Check, Plus, Download, FileJson, FileArchive, MessageSquare } from 'lucide-react';
 import { Button, IconButton, ConfirmModal, Input, AudioPlayer, LyricsEditor } from '../components/ui';
+import { exportIdeaZIP, exportSongAsJSON } from '../lib/export';
+import { notifyBandMembers } from '../lib/notifications';
 import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
@@ -32,6 +34,8 @@ export function SongWorkspacePage() {
   const [feedback, setFeedback] = useState<SongFeedback[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showExportOptions, setShowExportOptions] = useState(false);
   const [saveStatus, setSaveStatus] = useState('READY');
   const [mobileTab, setMobileTab] = useState<'lyrics' | 'details' | 'audio'>('lyrics');
   
@@ -45,6 +49,7 @@ export function SongWorkspacePage() {
     tempo: '',
     genre: '',
   });
+  const [feedbackNotes, setFeedbackNotes] = useState('');
   const [audioFiles, setAudioFiles] = useState<AudioFile[]>([]);
   const [newFeedback, setNewFeedback] = useState('');
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
@@ -94,6 +99,7 @@ export function SongWorkspacePage() {
         tempo: songData.metadata?.tempo || '',
         genre: songData.metadata?.genre || '',
       });
+      setFeedbackNotes((songData as any).feedback_notes || '');
       
       const { data: membersData } = await supabase
         .from('band_members')
@@ -135,18 +141,36 @@ export function SongWorkspacePage() {
     setSaving(true);
     setSaveStatus('SAVING...');
     
-    const { error } = await (supabase.from('songs') as any).update({
-        work_title: workTitle,
-        lyrics,
-        notes,
-        metadata,
-        audio_files: audioFiles.map(({ url, ...rest }) => rest),
-        updated_by: user.id,
-      }).eq('id', song.id);
+    const payload: any = {
+      feedback_notes: feedbackNotes,
+      updated_by: user.id,
+    };
+
+    if (canEdit) {
+      payload.work_title = workTitle;
+      payload.lyrics = lyrics;
+      payload.notes = notes;
+      payload.metadata = metadata;
+      payload.audio_files = audioFiles.map(({ url, ...rest }) => rest);
+    }
+
+    const { error } = await supabase.from('songs').update(payload).eq('id', song.id);
 
     if (!error) {
-      setSong(prev => prev ? { ...prev, updated_at: new Date().toISOString() } : null);
+      setSong(prev => prev ? { ...prev, ...payload, updated_at: new Date().toISOString() } : null);
       setSaveStatus('SAVED');
+
+      // Notify others/creator
+      await notifyBandMembers({
+        bandId: song.band_id,
+        songId: song.id,
+        type: 'edit',
+        message: `${user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member'} updated "${workTitle}"`,
+        fromUserId: user.id,
+        fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+        excludeSelf: true,
+      });
+
       setTimeout(() => setSaveStatus('READY'), 2000);
     } else {
       setSaveStatus('ERROR');
@@ -188,6 +212,18 @@ export function SongWorkspacePage() {
 
       const { data: urlData } = await supabase.storage.from('audio-files').createSignedUrl(storagePath, 3600);
       setAudioFiles([...audioFiles, { ...newAudioFile, url: urlData?.signedUrl }]);
+      
+      // Notify others
+      await notifyBandMembers({
+        bandId: song.band_id,
+        songId: song.id,
+        type: 'upload',
+        message: `${user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member'} uploaded a new recording to "${workTitle}"`,
+        fromUserId: user.id,
+        fromUserName: user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'A member',
+        excludeSelf: true,
+      });
+
       setUploadingFiles(prev => prev.filter(f => f.name !== file.name));
     }
   };
@@ -311,17 +347,63 @@ export function SongWorkspacePage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
-            {canEdit && (
-              <>
-                <Button variant="outline" icon={Save} onClick={saveSong} className="hidden lg:flex" disabled={saving}>Save</Button>
-                <IconButton icon={Save} onClick={saveSong} className="lg:hidden" title="Save" />
+            <div className="relative">
+              <IconButton 
+                icon={Download} 
+                onClick={() => setShowExportOptions(!showExportOptions)} 
+                title="Export" 
+              />
+              {showExportOptions && (
+                <div className="absolute top-full right-0 mt-2 w-48 bg-bg-secondary border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                  <div className="p-1">
+                    <button
+                      onClick={async () => {
+                        if (!song) return;
+                        setExporting(true);
+                        setShowExportOptions(false);
+                        // Song schema is slightly different but exportIdeaZIP is generic enough
+                        await exportIdeaZIP({ ...song, title: song.work_title }, audioFiles);
+                        setExporting(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-xs font-bold tracking-tight text-white/70 hover:bg-white/5 transition-colors"
+                    >
+                      <FileArchive size={14} className="text-primary-accent" />
+                      Full Project (ZIP)
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (!song) return;
+                        exportSongAsJSON(song);
+                        setShowExportOptions(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left text-xs font-bold tracking-tight text-white/70 hover:bg-white/5 transition-colors"
+                    >
+                      <FileJson size={14} className="text-blue-400" />
+                      Metadata (JSON)
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" icon={Save} onClick={saveSong} className="hidden lg:flex" disabled={saving}>Save</Button>
+              <IconButton icon={Save} onClick={saveSong} className="lg:hidden" title="Save" />
+              {canEdit && (
                 <Button variant="primary" icon={notified ? Check : Share2} onClick={notifyBandMembers} disabled={notifying || notified}>
                   {notified ? 'Notified' : notifying ? 'Notifying...' : 'Share'}
                 </Button>
-              </>
-            )}
+              )}
+            </div>
           </div>
         </header>
+
+        {exporting && (
+          <div className="bg-primary-accent/10 border-b border-primary-accent/20 py-2 px-6 animate-pulse shrink-0">
+            <p className="text-[10px] font-black uppercase tracking-widest text-primary-accent text-center">
+              Generating export bundle...
+            </p>
+          </div>
+        )}
         
         <div className="flex-1 flex flex-col lg:grid lg:grid-cols-12 gap-px bg-border overflow-hidden relative">
           
@@ -344,14 +426,26 @@ export function SongWorkspacePage() {
                       <Input label="Genre" value={metadata.genre} onChange={(v) => setMetadata({...metadata, genre: v})} disabled={!canEdit} />
                       {canEdit && (
                         <div className="pt-4 border-t border-white/5">
-                           <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Project Notes</label>
-                           <textarea 
-                              className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/70 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
-                              value={notes}
-                              onChange={(e) => setNotes(e.target.value)}
-                              disabled={!canEdit}
-                            />
-                        </div>
+                          <label className="text-[8px] uppercase tracking-[0.2em] font-black text-white/30 mb-2 block">Project Notes (Creator Only)</label>
+                          <textarea 
+                             className="w-full h-32 bg-bg-tertiary border border-white/5 rounded-xl p-3 text-xs text-white/50 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 resize-none font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                             value={notes}
+                             onChange={(e) => setNotes(e.target.value)}
+                             disabled={!canEdit}
+                           />
+                       </div>
+                       <div className="pt-4 border-t border-white/5">
+                          <label className="text-[8px] uppercase tracking-[0.2em] font-black text-primary-accent mb-2 flex items-center gap-2">
+                            <MessageSquare size={10} />
+                            Feedback & Suggestions (Editable for all members)
+                          </label>
+                          <textarea 
+                             className="w-full h-48 bg-bg-tertiary border border-primary-accent/20 rounded-xl p-3 text-xs text-white/90 outline-none focus:ring-2 focus:ring-primary-accent/30 focus:border-primary-accent/50 resize-none font-mono transition-all duration-300 ease-in-out shadow-[0_0_15px_rgba(0,255,0,0.05)] placeholder:text-white/10"
+                             placeholder="Add your thoughts, arrangement ideas, or feedback here..."
+                             value={feedbackNotes}
+                             onChange={(e) => setFeedbackNotes(e.target.value)}
+                           />
+                       </div>
                       )}
                       
                       {!isOwner && (
@@ -506,18 +600,31 @@ export function SongWorkspacePage() {
                 </div>
               </div>
 
-              {canEdit && (
-                <div>
-                  <span className="text-accent-label block mb-6">Notes</span>
-                  <textarea 
-                    className="w-full h-64 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/60 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 leading-relaxed placeholder:text-white/5 font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
-                    placeholder="Technical notes, inspiration, setup..."
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    disabled={!canEdit}
-                  />
-                </div>
-              )}
+              <div>
+                 <div>
+                   <span className="text-accent-label block mb-6">Project Notes</span>
+                   <textarea 
+                     className="w-full h-32 bg-bg-tertiary border border-white/5 rounded-xl p-5 text-sm text-white/40 outline-none focus:ring-2 focus:ring-white/10 focus:border-white/10 leading-relaxed placeholder:text-white/5 font-mono transition-all duration-300 ease-in-out shadow-inner disabled:opacity-50"
+                     placeholder="Technical notes, inspiration, setup..."
+                     value={notes}
+                     onChange={(e) => setNotes(e.target.value)}
+                     disabled={!canEdit}
+                   />
+                 </div>
+
+                 <div>
+                   <div className="flex justify-between items-center mb-6">
+                     <span className="text-accent-label text-primary-accent">Feedback & Suggestions</span>
+                     <div className="px-2 py-0.5 bg-primary-accent/10 border border-primary-accent/20 rounded text-[8px] font-black uppercase tracking-widest text-primary-accent">Editable for all</div>
+                   </div>
+                   <textarea 
+                     className="w-full h-48 bg-bg-tertiary border border-primary-accent/20 rounded-xl p-5 text-sm text-white/90 outline-none focus:ring-2 focus:ring-primary-accent/30 focus:border-primary-accent/50 leading-relaxed placeholder:text-white/10 font-mono transition-all duration-300 ease-in-out shadow-[0_0_20px_rgba(0,255,0,0.05)]"
+                     placeholder="Share your feedback, suggest changes, or discuss the arrangement..."
+                     value={feedbackNotes}
+                     onChange={(e) => setFeedbackNotes(e.target.value)}
+                   />
+                 </div>
+               </div>
 
               {!isOwner && (
                 <div>

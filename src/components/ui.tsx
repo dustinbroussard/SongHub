@@ -264,13 +264,28 @@ export const AudioPlayer: React.FC<{
               title="Rename Recording"
             />
           )}
-          <IconButton icon={Download} onClick={() => {
-            if (!file.url) return;
-            const a = document.createElement('a');
-            a.href = file.url;
-            a.download = file.name || file.display_name || 'download';
-            a.click();
-          }} />
+          <IconButton 
+            icon={Download} 
+            onClick={async () => {
+              if (!file.url) return;
+              try {
+                const response = await fetch(file.url);
+                const blob = await response.blob();
+                const blobUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = blobUrl;
+                a.download = file.name || file.display_name || 'recording.mp3';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+              } catch (err) {
+                console.error('Download failed:', err);
+                // Fallback to direct link if fetch fails
+                window.open(file.url, '_blank');
+              }
+            }} 
+          />
           {onDelete && <IconButton icon={Trash2} className="hover:text-danger" onClick={() => onDelete(file.id)} />}
         </div>
       </div>
