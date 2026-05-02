@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical, UserPlus, Copy, Check, X, Download } from 'lucide-react';
+import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical, UserPlus, Copy, Check, X, Download, Settings } from 'lucide-react';
 import { Button, IconButton, ConfirmModal, useSpeechRecognition } from '../components/ui';
 import { exportBandLibraryZIP } from '../lib/export';
 import { notifyBandMembers } from '../lib/notifications';
@@ -175,6 +175,45 @@ export function DashboardPage() {
     navigate('/songhub/onboarding');
   };
 
+  const renameBand = async () => {
+    if (!currentBand || !isOwner) return;
+    const newName = window.prompt("Rename band:", currentBand.name);
+    if (newName && newName.trim() && newName.trim() !== currentBand.name) {
+      const trimmed = newName.trim();
+      const { error } = await supabase
+        .from('hub_bands')
+        .update({ name: trimmed })
+        .eq('id', currentBand.id);
+      
+      if (!error) {
+        setBands(prev => prev.map(b => b.id === currentBand.id ? { ...b, name: trimmed } : b));
+        setCurrentBand({ ...currentBand, name: trimmed });
+      }
+    }
+  };
+
+  const deleteBand = () => {
+    if (!currentBand || !isOwner) return;
+    setConfirmState({
+      isOpen: true,
+      title: "Delete Band",
+      message: `Are you sure you want to permanently delete "${currentBand.name}"? This will delete all ideas, recordings, and remove all members. This action cannot be undone.`,
+      onConfirm: async () => {
+        const { error } = await supabase
+          .from('hub_bands')
+          .delete()
+          .eq('id', currentBand.id);
+        
+        if (!error) {
+          const remainingBands = bands.filter(b => b.id !== currentBand.id);
+          setBands(remainingBands);
+          setCurrentBand(remainingBands.length > 0 ? remainingBands[0] : null);
+          setConfirmState(prev => ({ ...prev, isOpen: false }));
+        }
+      }
+    });
+  };
+
   const filteredAndSortedIdeas = useMemo(() => {
     let result = [...ideas];
     if (searchQuery.trim()) {
@@ -258,13 +297,29 @@ export function DashboardPage() {
                   </div>
                   <div className="border-t border-white/10 p-2 space-y-1">
                     {isOwner && (
-                      <button
-                        onClick={() => { setShowInviteModal(true); setShowBandMenu(false); }}
-                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-primary-accent hover:bg-primary-accent/10 transition-colors"
-                      >
-                        <UserPlus className="w-3 h-3" />
-                        Invite Members
-                      </button>
+                      <>
+                        <button
+                          onClick={() => { setShowInviteModal(true); setShowBandMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-primary-accent hover:bg-primary-accent/10 transition-colors"
+                        >
+                          <UserPlus className="w-3 h-3" />
+                          Invite Members
+                        </button>
+                        <button
+                          onClick={() => { renameBand(); setShowBandMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-white/70 hover:bg-white/5 transition-colors"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          Rename Band
+                        </button>
+                        <button
+                          onClick={() => { deleteBand(); setShowBandMenu(false); }}
+                          className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest text-red-500/70 hover:bg-red-500/10 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete Band
+                        </button>
+                      </>
                     )}
                     <button
                       onClick={async () => {
