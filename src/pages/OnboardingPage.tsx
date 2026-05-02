@@ -6,7 +6,7 @@ import { Music, Users, ArrowRight, LogOut, Copy, Check } from 'lucide-react';
 
 function generateInviteCode(): string {
   // Generate a 12-character random hex string for the invite code
-  return Array.from({ length: 12 }, () => 
+  return Array.from({ length: 12 }, () =>
     Math.floor(Math.random() * 16).toString(16)
   ).join('');
 }
@@ -23,7 +23,7 @@ export function OnboardingPage() {
 
   const handleCopyLink = async () => {
     if (!createdBand) return;
-    
+
     const joinUrl = `${window.location.origin}/join?code=${createdBand.invite_code}`;
     try {
       await navigator.clipboard.writeText(joinUrl);
@@ -45,7 +45,7 @@ export function OnboardingPage() {
     try {
       // Generate invite code and create band
       const inviteCode = generateInviteCode();
-      
+
       const { data: band, error: bandError } = await supabase
         .from('hub_bands')
         .insert({
@@ -170,7 +170,7 @@ export function OnboardingPage() {
   // Show success state with join link
   if (createdBand) {
     const joinUrl = `${window.location.origin}/join?code=${createdBand.invite_code}`;
-    
+
     return (
       <div className="min-h-screen bg-bg-primary flex flex-col items-center justify-center p-6">
         <div className="max-w-md w-full space-y-6">

@@ -2,15 +2,16 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
-import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical, UserPlus, Copy, Check, X, Download, Settings } from 'lucide-react';
+import { Plus, Trash2, Mic, Sun, Moon, ArrowUpDown, Edit3, Archive, LogOut, ChevronRight, MoreVertical, UserPlus, Copy, Check, X, Download, Settings, Bell } from 'lucide-react';
 import { Button, IconButton, ConfirmModal, useSpeechRecognition } from '../components/ui';
 import { exportBandLibraryZIP } from '../lib/export';
-import { notifyBandMembers } from '../lib/notifications';
+import { notifyBandMembers, fetchNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../lib/notifications';
 import { cn } from '../lib/utils';
 import type { Database } from '../types/database';
 
 type Band = Database['public']['Tables']['hub_bands']['Row'];
 type Idea = Database['public']['Tables']['hub_new_ideas']['Row'];
+type Notification = Database['public']['Tables']['notifications']['Row'];
 
 export function DashboardPage() {
   const { user, signOut } = useAuth();
@@ -29,6 +30,8 @@ export function DashboardPage() {
   const [exporting, setExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
   const [copied, setCopied] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   
   const { isListening, startListening, stopListening } = useSpeechRecognition();
   
@@ -110,6 +113,37 @@ export function DashboardPage() {
 
     fetchBandData();
   }, [currentBand, user]);
+
+  useEffect(() => {
+    if (!user) return;
+    const loadNotifications = async () => {
+      const data = await fetchNotifications(user.id);
+      setNotifications(data);
+    };
+    loadNotifications();
+  }, [user]);
+
+  const unreadCount = notifications.filter(n => !n.is_read).length;
+
+  const handleNotificationClick = async (notification: Notification) => {
+    if (!notification.is_read) {
+      await markNotificationAsRead(notification.id);
+      setNotifications(prev => prev.map(n => 
+        n.id === notification.id ? { ...n, is_read: true } : n
+      ));
+    }
+    
+    if (notification.song_id) {
+      navigate(`/idea/${notification.song_id}`);
+    }
+    setShowNotifications(false);
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!user) return;
+    await markAllNotificationsAsRead(user.id);
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+  };
 
   const toggleTheme = () => {
     const newTheme = theme === 'dark' ? 'light' : 'dark';
@@ -356,6 +390,66 @@ export function DashboardPage() {
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
+            <div className="relative">
+              <IconButton 
+                icon={Bell} 
+                onClick={() => setShowNotifications(!showNotifications)} 
+                title="Notifications"
+                className={unreadCount > 0 ? 'text-primary-accent' : ''}
+              />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-4 h-4 bg-primary-accent text-black text-[9px] font-bold rounded-full flex items-center justify-center">
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+              
+              {showNotifications && (
+                <div className="absolute top-full right-0 mt-2 w-80 bg-bg-secondary border border-white/10 rounded-xl shadow-xl overflow-hidden z-50">
+                  <div className="p-3 border-b border-white/10 flex items-center justify-between">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-white">Notifications</h3>
+                    {unreadCount > 0 && (
+                      <button
+                        onClick={handleMarkAllAsRead}
+                        className="text-[9px] uppercase font-black text-primary-accent hover:text-primary-accent/80 transition-colors"
+                      >
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-96 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="p-6 text-center">
+                        <p className="text-[10px] text-white/30 uppercase tracking-widest">No notifications</p>
+                      </div>
+                    ) : (
+                      notifications.map(notification => (
+                        <div
+                          key={notification.id}
+                          onClick={() => handleNotificationClick(notification)}
+                          className={cn(
+                            "p-3 border-b border-white/5 cursor-pointer transition-colors hover:bg-white/5",
+                            !notification.is_read && "bg-white/5"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={cn(
+                              "w-2 h-2 rounded-full mt-1.5 shrink-0",
+                              !notification.is_read ? "bg-primary-accent" : "bg-transparent"
+                            )} />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-white/90 leading-snug">{notification.message}</p>
+                              <p className="text-[9px] text-white/30 uppercase tracking-widest mt-1">
+                                {notification.from_user_name} • {new Date(notification.created_at).toLocaleDateString()}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
             <IconButton icon={theme === 'dark' ? Sun : Moon} onClick={toggleTheme} title="Toggle Theme" />
             <IconButton icon={Plus} className="text-black bg-primary-accent hover:bg-primary-accent/90 rounded-xl p-1.5 shadow-[0_0_10px_rgba(0,255,0,0.2)]" onClick={createIdea} title="New Idea" />
           </div>

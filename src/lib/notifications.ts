@@ -82,3 +82,41 @@ export const notifyBandOwner = async (params: {
     });
   }
 };
+
+export const fetchNotifications = async (userId: string) => {
+  const { data, error } = await supabase
+    .from('notifications')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false });
+
+  if (error) {
+    console.error('Failed to fetch notifications:', error);
+    return [];
+  }
+
+  return data || [];
+};
+
+export const markNotificationAsRead = async (notificationId: string) => {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('id', notificationId);
+
+  if (error) {
+    console.error('Failed to mark notification as read:', error);
+  }
+};
+
+export const markAllNotificationsAsRead = async (userId: string) => {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ is_read: true })
+    .eq('user_id', userId)
+    .eq('is_read', false);
+
+  if (error) {
+    console.error('Failed to mark all notifications as read:', error);
+  }
+};

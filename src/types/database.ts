@@ -278,6 +278,44 @@ export interface Database {
           updated_at?: string;
         };
       };
+      notifications: {
+        Row: {
+          id: string;
+          user_id: string;
+          band_id: string;
+          song_id: string | null;
+          type: 'join' | 'create' | 'edit' | 'upload' | 'feedback';
+          message: string;
+          from_user_id: string;
+          from_user_name: string;
+          is_read: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          band_id: string;
+          song_id?: string | null;
+          type: 'join' | 'create' | 'edit' | 'upload' | 'feedback';
+          message: string;
+          from_user_id: string;
+          from_user_name: string;
+          is_read?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          band_id?: string;
+          song_id?: string | null;
+          type?: 'join' | 'create' | 'edit' | 'upload' | 'feedback';
+          message?: string;
+          from_user_id?: string;
+          from_user_name?: string;
+          is_read?: boolean;
+          created_at?: string;
+        };
+      };
     };
     Views: {
       [_ in never]: never;
