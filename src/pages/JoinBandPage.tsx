@@ -29,11 +29,7 @@ export function JoinBandPage() {
     const fetchBand = async () => {
       try {
         console.log('Fetching band for invite code:', code);
-        const { data, error } = await supabase
-          .from('hub_bands')
-          .select('id, name')
-          .eq('invite_code', code)
-          .maybeSingle();
+        const { data, error } = await supabase.rpc('get_band_by_invite_code', { p_invite_code: code });
 
         console.log('Band fetch result:', { data, error });
 
